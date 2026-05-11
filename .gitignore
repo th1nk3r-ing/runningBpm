@@ -1,0 +1,15 @@
+*.iml
+.gradle
+/local.properties
+# 屏蔽当前文件夹下的 .idea 文件夹
+/.idea
+.DS_Store
+# 忽略所有 build 文件
+build*/
+*.o
+*.d
+.externalNativeBuild
+.cxx
+local.properties
+*.log
+.cache/
