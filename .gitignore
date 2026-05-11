@@ -2,7 +2,8 @@
 .gradle
 /local.properties
 # 屏蔽当前文件夹下的 .idea 文件夹
-/.idea
+.idea/
+.claude/
 .DS_Store
 # 忽略所有 build 文件
 build*/
