@@ -70,28 +70,29 @@
   - [x] 返回 tick 触发帧索引数组
 - [x] **验收**：BPM=150, sampleRate=48000, 4800000 步（100 秒）→ 250 ticks，零累积误差
 
-### 2.3 采样播放器 — `SamplePlayer.hpp`
-- [ ] 数据结构
-  - [ ] `std::vector<float> sampleData_`（预加载的 PCM 样本）
-  - [ ] `uint32_t readPos_ = 0`
-  - [ ] `bool playing_ = false`
-- [ ] `Load(const float* data, size_t length)` → 拷贝 PCM 到内部 buffer
-- [ ] `Play()` → `readPos_ = 0; playing_ = true`
-- [ ] `Render(float* out, int numFrames, float gain)`
-  - [ ] 若 `playing_`：逐采样拷贝 `sampleData_[readPos_++] * gain`
-  - [ ] 若 `readPos_ >= sampleData_.size()`：输出静音，`playing_ = false`
-- [ ] 引擎持有两个实例：`tickPlayer_`、`chimePlayer_`
-- [ ] **验收**：Play 后 Render N 帧，输出非零；播放完毕后 Render 输出全零
+### 2.3 采样播放器 — `SamplePlayer.hpp` ✅
+- [x] 数据结构
+  - [x] `std::vector<float> sampleData_`（预加载的 PCM 样本）
+  - [x] `uint32_t readPos_ = 0`
+  - [x] `bool playing_ = false`
+- [x] `Load(const float* data, size_t length)` → 拷贝 PCM 到内部 buffer
+- [x] `Play()` → `readPos_ = 0; playing_ = true`
+- [x] `Render(float* out, int numFrames, float gain)`
+  - [x] 若 `playing_`：逐采样拷贝 `sampleData_[readPos_++] * gain`
+  - [x] 若 `readPos_ >= sampleData_.size()`：输出静音，`playing_ = false`
+- [x] 引擎持有两个实例：`tickPlayer_`、`chimePlayer_`
+- [x] **验收**：Play 后 Render N 帧，输出非零；播放完毕后 Render 输出全零
 
-### 2.4 混音器 — `Mixer.hpp`
-- [ ] `Process(float* tickBuf, float* chimeBuf, float* out, int numFrames, float tickGain, float chimeGain)`
-  - [ ] 公式：`out[i] = tickBuf[i] * tickGain + chimeBuf[i] * chimeGain`
-- [ ] 纯头文件实现，无状态，内联优化
+### 2.4 混音器 — `Mixer.hpp` ✅
+- [x] `Process(float* tickBuf, float* chimeBuf, float* out, int numFrames, float tickGain, float chimeGain)`
+  - [x] 公式：`out[i] = tickBuf[i] * tickGain + chimeBuf[i] * chimeGain`
+- [x] 纯头文件实现，无状态，内联优化
 
-### 2.5 软限幅器 — `Limiter.hpp`
-- [ ] `Process(float* buffer, int numFrames)`
-  - [ ] `tanh(x)` 或 `clamp(x, -0.95f, 0.95f)`（含 3% headroom）
-- [ ] 纯头文件实现
+### 2.5 软限幅器 — `Limiter.hpp` ✅
+- [x] `Process(float* buffer, int numFrames)`
+  - [x] `tanh(x)` 平滑软限幅，保留 3% headroom
+  - [x] `ProcessHard` 硬限幅备选（clamp ±0.97）
+- [x] 纯头文件实现
 
 ### 2.6 音频引擎状态机 — `AudioEngine.hpp`
 - [ ] 状态枚举：`Idle | Running | Paused`
