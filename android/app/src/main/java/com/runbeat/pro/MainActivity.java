@@ -31,6 +31,7 @@ public class MainActivity extends AppCompatActivity {
     private SeekBar sbTickVolume;
     private Switch switchAccent;
     private View layoutBpmControls, layoutParams;
+    private TextView tvBuildInfo;
 
     // ===== 状态 =====
     private double bpm = 180.0;
@@ -82,6 +83,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         updateUI();
+
+        tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
     }
 
     @Override
@@ -116,6 +119,7 @@ public class MainActivity extends AppCompatActivity {
         switchAccent = findViewById(R.id.switchAccent);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
         layoutParams = findViewById(R.id.layoutParams);
+        tvBuildInfo = findViewById(R.id.tvBuildInfo);
     }
 
     // ===== 事件注册 =====
