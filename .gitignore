@@ -14,3 +14,5 @@ build*/
 local.properties
 *.log
 .cache/
+*.keystore
+*.jks
