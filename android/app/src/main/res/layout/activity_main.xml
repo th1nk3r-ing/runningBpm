@@ -3,16 +3,202 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center"
-    android:background="@color/background">
+    android:background="@color/background"
+    android:padding="16dp">
+
+    <!-- 状态区：运行指示灯 + 文字 + 锁定开关 -->
+    <LinearLayout
+        android:id="@+id/layoutStatusBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp">
+
+        <View
+            android:id="@+id/viewStatusDot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/status_dot" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="STOPPED"
+            android:textColor="@color/textPrimary"
+            android:textSize="16sp" />
+
+        <Switch
+            android:id="@+id/switchLock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:thumbTint="@color/colorPrimary"
+            android:trackTint="@color/colorPrimaryVariant" />
+    </LinearLayout>
+
+    <!-- 分隔线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#333333"
+        android:layout_marginBottom="24dp" />
+
+    <!-- 计时区 -->
+    <TextView
+        android:id="@+id/tvTimer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="00:00:00"
+        android:textColor="@color/textPrimary"
+        android:textSize="48sp"
+        android:typeface="monospace"
+        android:gravity="center"
+        android:layout_marginBottom="16dp" />
+
+    <!-- BPM 核心区 -->
+    <TextView
+        android:id="@+id/tvBpm"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="180"
+        android:textColor="@color/textPrimary"
+        android:textSize="96sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="4dp" />
 
     <TextView
-        android:id="@+id/tvHello"
-        android:layout_width="wrap_content"
+        android:id="@+id/tvBpmLabel"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hello RunBeat"
-        android:textSize="32sp"
-        android:textColor="@color/textPrimary"
-        android:textStyle="bold" />
+        android:text="BPM"
+        android:textColor="@color/colorPrimary"
+        android:textSize="20sp"
+        android:gravity="center"
+        android:layout_marginBottom="32dp" />
+
+    <!-- 分隔线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#333333"
+        android:layout_marginBottom="24dp" />
+
+    <!-- 调节区：[-5] [-1] [+1] [+5] -->
+    <LinearLayout
+        android:id="@+id/layoutBpmControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="24dp">
+
+        <Button
+            android:id="@+id/btnBpmMinus5"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="-5"
+            android:textSize="18sp"
+            android:background="@drawable/btn_bpm_control" />
+
+        <Button
+            android:id="@+id/btnBpmMinus1"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="-1"
+            android:textSize="18sp"
+            android:background="@drawable/btn_bpm_control" />
+
+        <Button
+            android:id="@+id/btnBpmPlus1"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="+1"
+            android:textSize="18sp"
+            android:background="@drawable/btn_bpm_control" />
+
+        <Button
+            android:id="@+id/btnBpmPlus5"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="+5"
+            android:textSize="18sp"
+            android:background="@drawable/btn_bpm_control" />
+    </LinearLayout>
+
+    <!-- 控制区：START / PAUSE -->
+    <Button
+        android:id="@+id/btnStartPause"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="START"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:background="@drawable/btn_start_pause"
+        android:layout_marginBottom="24dp" />
+
+    <!-- 分隔线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#333333"
+        android:layout_marginBottom="16dp" />
+
+    <!-- 参数区：音量 + Accent -->
+    <LinearLayout
+        android:id="@+id/layoutParams"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvTickVolumeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tick Vol"
+            android:textColor="@color/textPrimary"
+            android:textSize="14sp"
+            android:layout_marginEnd="8dp" />
+
+        <SeekBar
+            android:id="@+id/sbTickVolume"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="100"
+            android:progress="80"
+            android:thumbTint="@color/colorPrimary"
+            android:progressTint="@color/colorPrimary" />
+
+        <TextView
+            android:id="@+id/tvAccentLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Accent"
+            android:textColor="@color/textPrimary"
+            android:textSize="14sp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="8dp" />
+
+        <Switch
+            android:id="@+id/switchAccent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:thumbTint="@color/colorPrimary"
+            android:trackTint="@color/colorPrimaryVariant" />
+    </LinearLayout>
 
 </LinearLayout>

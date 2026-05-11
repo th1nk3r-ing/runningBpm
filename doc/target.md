@@ -23,13 +23,13 @@
 - [x] 创建 `res/layout/activity_main.xml`：基础线性布局，居中 `TextView`
 - [x] **验收**：`./gradlew assembleDebug` 通过，安装到设备屏幕显示 "Hello RunBeat"
 
-### 1.2 基础骨架搭建
-- [ ] 设计 `activity_main.xml` 整体布局框架（用 ViewGroup 占位，Phase 3 填入实际控件）
-- [ ] 配置深色主题（`res/values/themes.xml`）
-  - [ ] `Theme.Material3.Dark` + `colorPrimary #FF6B35`
-  - [ ] 背景色 `#121212`
-- [ ] 配置 `proguard-rules.pro`（保留 native 方法，避免混淆）
-- [ ] 创建 `AudioEngine.java`（空壳 JNI 接口类，Phase 2 填方法）
+### 1.2 基础骨架搭建 ✅
+- [x] 设计 `activity_main.xml` 整体布局框架（用 ViewGroup 占位，Phase 3 填入实际控件）
+- [x] 配置深色主题（`res/values/themes.xml`）
+  - [x] `Theme.Material3.Dark` + `colorPrimary #FF6B35`
+  - [x] 背景色 `#121212`
+- [x] 配置 `proguard-rules.pro`（保留 native 方法，避免混淆）
+- [x] 创建 `AudioEngine.java`（空壳 JNI 接口类，Phase 2 填方法）
 
 ---
 
