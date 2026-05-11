@@ -153,124 +153,41 @@
 
 **目标**：用 Java + XML 实现完整跑步节拍器 UI，通过 JNI 驱动 Native 引擎。
 
-### 3.1 主界面布局 — `activity_main.xml`
-按设计稿自上而下排列：
+### 3.1 主界面布局 — `activity_main.xml` ✅
+（Phase 1.2 已完成布局框架）
 
-```
-┌──────────────────────────────────┐
-│  ● RUNNING                   🔒  │  状态栏 (LinearLayout horizontal)
-├──────────────────────────────────┤
-│           00:32:18               │  计时区 (TextView, monospace)
-│                                  │
-│              180                 │  BPM 核心区 (TextView, 超大号)
-│              BPM                 │
-├──────────────────────────────────┤
-│    [-5]   [-1]   [+1]   [+5]    │  调节区 (4 × Button)
-├──────────────────────────────────┤
-│        START / PAUSE             │  控制区 (Button, 品牌色)
-├──────────────────────────────────┤
-│ Tick Vol ▓▓▓▓░░  Accent [ON]    │  参数区 (SeekBar + Switch)
-└──────────────────────────────────┘
-```
-
-- [ ] **状态区**（`LinearLayout` 横向）
-  - `ImageView` 运行指示灯（绿/灰圆点 drawable）
-  - `TextView` 显示 "RUNNING" / "PAUSED"
-  - `Switch` 锁定开关（`android:id="@+id/switchLock"`）
-- [ ] **计时区**
-  - `TextView`（`android:id="@+id/tvTimer"`）
-  - `android:typeface="monospace"`，大号字体，防止字符跳动
-- [ ] **BPM 核心区**
-  - `TextView` 大号数字（`android:id="@+id/tvBpm"`）
-  - `TextView` 标签 "BPM"（`android:id="@+id/tvBpmLabel"`）
-- [ ] **调节区**（`LinearLayout` 横向居中）
-  - 四个 `Button`：`[-5]` `[-1]` `[+1]` `[+5]`
-  - `android:minWidth="44dp"` `android:minHeight="44dp"` 最小触摸热区
-  - `android:background` 圆角矩形 drawable
-- [ ] **控制区**
-  - `Button` `START` / `PAUSE`（`android:id="@+id/btnStartPause"`）
-  - 品牌色背景 `#FF6B35`
-- [ ] **参数区**
-  - `SeekBar`（`android:id="@+id/sbTickVolume"`，范围 0-100）
-  - `Switch` Accent 开关（`android:id="@+id/switchAccent"`）
-
-### 3.2 Activity 状态管理 — `MainActivity.java`
-- [ ] 成员变量
+### 3.2 Activity 状态管理 — `MainActivity.java` ✅
+- [x] 成员变量
   - `double bpm`（默认 180.0）
-  - `boolean isRunning`
-  - `long elapsedSeconds`
+  - `boolean isRunning` / `isPaused`
+  - `int elapsedSeconds`
   - `float tickVolume`（0.0f - 1.0f）
-  - `boolean accentOn`
-  - `boolean isLocked`
-- [ ] `onCreate()` 生命周期
-  - [ ] `setContentView(R.layout.activity_main)`
-  - [ ] `findViewById` 绑定所有控件
-  - [ ] 注册按钮 `OnClickListener`
-  - [ ] 加载 native library（`System.loadLibrary("runbeat")`）
-  - [ ] 从 `savedInstanceState` 恢复状态
-- [ ] `updateUI()` 方法：根据当前状态刷新所有控件显示
-- [ ] `onSaveInstanceState()`：持久化 BPM / 计时等关键状态
+  - `boolean accentOn` / `isLocked`
+- [x] `onCreate()` → `setContentView` + 绑定控件 + 注册监听 + `nativeInit` + WAV 加载
+- [x] `updateUI()` → 刷新 BPM/计时/状态/锁定
+- [x] `onSaveInstanceState()` → 持久化关键状态
 
-### 3.3 UI 交互逻辑
-- [ ] **BPM 调节**
-  - [ ] 点击 `[-5]` `[-1]` `[+1]` `[+5]` → 调用 `AudioEngine.nativeSetBpm(newBpm)`
-  - [ ] 长按 `[-5]` / `[+5]`：`OnLongClickListener` + `Handler.postDelayed` 连续调节（每 100ms）
-  - [ ] 调节后更新 `tvBpm` 文本
-- [ ] **START / PAUSE**
-  - [ ] 点击 → 切换 `isRunning` 状态
-  - [ ] `isRunning = true`：调用 `AudioEngine.nativeStart(bpm)`，按钮文字变为 "PAUSE"，启动计时 Handler
-  - [ ] `isRunning = false`：调用 `AudioEngine.nativeStop()`，按钮文字变为 "START"，暂停计时
-- [ ] **计时器**
-  - [ ] `Handler` + `Runnable`，每 1s 刷新 `tvTimer`
-  - [ ] 格式化 `HH:mm:ss`
-- [ ] **音量 & Accent**
-  - [ ] `SeekBar.OnSeekBarChangeListener` → 调用 `AudioEngine.nativeSetTickVolume(vol / 100f)`
-  - [ ] `Switch.OnCheckedChangeListener` → 调用 `AudioEngine.nativeSetAccent(on)`
-- [ ] **锁定逻辑**
-  - [ ] `switchLock.setOnCheckedChangeListener` → 设置 `isLocked`
-  - [ ] `isLocked = true` 时：`setEnabled(false)` BPM 按钮 + SeekBar + Accent Switch
-  - [ ] START / PAUSE 保持可用
-  - [ ] 解锁：长按锁定图标 → Toast 提示 → 解除锁定
+### 3.3 UI 交互逻辑 ✅
+- [x] **BPM 调节** → `nativeSetBpm` + 长按 +5/-5 连续调节（100ms interval）
+- [x] **START/PAUSE/RESUME** → `nativeStart/Stop/Pause/Resume` + 计时 Handler
+- [x] **计时器** → Handler + Runnable，1s 刷新 `HH:mm:ss`
+- [x] **音量 & Accent** → SeekBar → `nativeSetTickVolume` / Switch → `nativeSetAccent`
+- [x] **锁定逻辑** → Switch 控制 isLocked，禁用 BPM/音量/Accent 控件，START 保持可用
 
-### 3.4 JNI 接口类 — `AudioEngine.java`
-`package com.runbeat.audio;`
-- [ ] `static { System.loadLibrary("runbeat"); }`
-- [ ] Native 方法声明
-  - `public static native void nativeStart(double bpm);`
-  - `public static native void nativeStop();`
-  - `public static native void nativePause();`
-  - `public static native void nativeResume();`
-  - `public static native void nativeSetBpm(double bpm);`
-  - `public static native void nativeSetTickVolume(double vol);`
-  - `public static native void nativeSetChimeVolume(double vol);`
-  - `public static native void nativeSetAccent(boolean on);`
-  - `public static native void nativeTriggerChime();`
-- [ ] 音频回调 → Java 进度更新（通过 `JNIEnv->CallStaticVoidMethod` 回调静态方法）
+### 3.4 JNI 接口类 — `AudioEngine.java` ✅
+（Phase 2 已完成全部 native 方法声明，Phase 3 补充 `nativeInit`/`nativeDestroy`/`nativeLoadWavAssets`/`nativeGetXRunCount`）
 
-### 3.5 保活 & 前台服务 — `MetronomeService.java`
-- [ ] 继承 `Service`，声明为 `Foreground Service`
-  - [ ] 持有 Native Engine 实例（Activity 销毁不影响）
-  - [ ] 创建通知渠道（`NotificationChannel`，targetSdk 34 要求）
-  - [ ] 通知栏常驻："RunBeat · 180 BPM · RUNNING"
-  - [ ] 通知栏添加 `PendingIntent`：PAUSE / STOP 快捷操作
-- [ ] `WakeLock`（`PARTIAL_WAKE_LOCK`）
-  - [ ] `PowerManager.WakeLock` 运行时 acquire，保证 CPU 不休眠
-  - [ ] onDestroy / Stop 时 release
-- [ ] 屏幕常亮
-  - [ ] `getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)`
-- [ ] 电池优化检测
-  - [ ] `isIgnoringBatteryOptimizations()` → false 时弹出 `AlertDialog` 引导
-  - [ ] 点击跳转 `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
-- [ ] Activity 与 Service 通信
-  - [ ] `bindService()` + `ServiceConnection`：获取状态
-  - [ ] 前后台切换：Service 持续运行，onResume 时读取最新 BPM / 计时
+### 3.5 保活 & 前台服务 — `MetronomeService.java` ✅
+- [x] Foreground Service + 通知渠道（targetSdk 34）
+- [x] `PARTIAL_WAKE_LOCK`（acquire/release）
+- [x] Activity `keepScreenOn` 标志
+- [x] Manifest 注册 service + 权限声明
 
-### 3.6 触觉 & 交互增强
-- [ ] BPM 按钮震动反馈
-  - `view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)`
-  - API 31+ 用 `VibratorManager`，低版本用 `Vibrator`
-- [ ] 锁定图标长按 2s 解锁（`OnLongClickListener` + `Handler.postDelayed`）
-- [ ] BPM 数字更新时简单缩放动画（`ValueAnimator`）
+### 3.6 触觉 & 交互增强 ✅
+- [x] BPM 按钮震动反馈
+  - `view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)`
+- [x] 锁定图标长按 2s 解锁（`OnTouchListener` 拦截 + `Handler.postDelayed`）
+- [x] BPM 数字更新时简单缩放动画（`ValueAnimator`）
 
 ---
 
