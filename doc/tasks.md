@@ -48,11 +48,11 @@
     │    ├── Mixer.hpp
     │    ├── Limiter.hpp
     │    └── AudioEngine.hpp
-    └── oboe_wrapper.cpp
+    ├── aaudio_engine.cpp
   ```
 - [ ] 编写 `CMakeLists.txt`
   - [ ] 编译 `core/` 源码为 `librunbeat_core`
-  - [ ] 引入 Oboe 库（源码或 prebuilt .aar）
+  - [ ] 链接 AAudio 共享库（`libaaudio.so`，NDK 自带）
 - [ ] Gradle 配置 `externalNativeBuild { cmake { ... } }`
 - [ ] 编写第一个 JNI 探针函数 `Java_com_runbeat_audio_AudioEngine_nativeHello()`
   - [ ] 返回 `jstring`，logcat 打一行 "native loaded"
@@ -116,7 +116,7 @@
 - [ ] **严禁回调内**：mutex、printf/log、malloc/new、系统调用
 - [ ] **验收**：模拟回调循环输出 10s 音频数据，写入 WAV 文件，audacity 查看节拍间隔均等
 
-### 2.7 JNI 桥接 & Oboe 驱动 — `oboe_wrapper.cpp`
+### 2.7 JNI 桥接 & AAudio 驱动 — `aaudio_engine.cpp`
 - [ ] Native 函数对外暴露
   - [ ] `nativeStart(jdouble bpm)`
   - [ ] `nativeStop()`
@@ -127,14 +127,17 @@
   - [ ] `nativeSetChimeVolume(jdouble vol)`
   - [ ] `nativeTriggerChime()`（整点报时入口）
 - [ ] 全局（或 static）`AudioEngine engine_` 实例
-- [ ] Oboe `AudioStreamBuilder` 配置
-  - [ ] `PerformanceMode::LowLatency`
-  - [ ] `SharingMode::Exclusive`
-  - [ ] `Format::Float`
-  - [ ] `SampleRate::48000`
-- [ ] 降级逻辑：独占失败 → 自动回退 `SharingMode::Shared`
-- [ ] `AudioStreamCallback::onAudioReady()` → `engine_.OnAudioCallback()`
-- [ ] XRun 监控：回调内计数 overflow/underrun，log 上报
+- [ ] AAudio 流构建（`AAudioStreamBuilder`）
+  - [ ] `AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY)`
+  - [ ] `AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE)`
+  - [ ] `AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT)`
+  - [ ] `AAudioStreamBuilder_setSampleRate(builder, 48000)`
+  - [ ] `AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr)`
+  - [ ] `AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr)`
+- [ ] 降级逻辑：独占失败 → 自动回退 `AAUDIO_SHARING_MODE_SHARED`
+- [ ] Data Callback：`AAudioStream_dataCallback` → 调用 `engine_.OnAudioCallback()`
+- [ ] Error Callback：处理流断开事件（蓝牙耳机插拔等），触发流重建
+- [ ] XRun 监控：回调内通过 `AAudioStream_getXRunCount()` 获取 underrun count
 - [ ] **验收**：`AudioEngine.java` 调用 `nativeStart(180.0)`，耳机/扬声器听到 180BPM 节拍声
 
 ### 2.8 WAV 资源准备

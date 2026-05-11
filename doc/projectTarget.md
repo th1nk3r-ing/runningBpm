@@ -2,7 +2,7 @@
 
 ### 1. 核心架构：跨平台 "Core + Shell"
 
-将音频运算与系统驱动分离。核心逻辑由 C++ 编写，确保在 Android (Oboe) 和 iOS (AudioUnit) 上算法行为完全一致。
+将音频运算与系统驱动分离。核心逻辑由 C++ 编写，确保在 Android (AAudio) 和 iOS (AudioUnit) 上算法行为完全一致。
 
 * **Shared Core (C++17)**：处理相位计算、采样生成、混音、限幅。
 * **Platform Shell**：处理系统级权限、音频流开启（Exclusive Mode 降级逻辑）、保活策略。
@@ -92,8 +92,8 @@ UI 采用高对比度深色模式，针对跑步时的身体晃动，点击区�
 Android 系统的碎片化和严苛的后台管理是最大挑战。
 
 * **流管理与降级**：
-  * 首选 `PerformanceMode::LowLatency` + `SharingMode::Exclusive`。
-  * **降级逻辑**：若独占模式失败（常见于蓝牙耳机或国产 ROM 限制），自动回退至 `Shared` 模式。
+  * 首选 `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY` + `AAUDIO_SHARING_MODE_EXCLUSIVE`。
+  * **降级逻辑**：若独占模式失败（常见于蓝牙耳机或国产 ROM 限制），自动回退至 `AAUDIO_SHARING_MODE_SHARED` 模式。
 
 * **XRun 监控**：实时记录采样溢出（Underrun/Overrun），动态调整 Buffer 大小以平衡延迟与稳定性。
 * **保活三剑客**：
@@ -144,7 +144,7 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
   │     ├── Mixer.hpp         // 混音与限幅
   │     └── AudioEngine.cpp   // 状态机与流程控制
   ├── /android
-  │     ├── oboe_wrapper.cpp  // JNI 与 Oboe 驱动
+  │     ├── aaudio_engine.cpp  // JNI 与 AAudio 驱动
   │     └── Service.kt        // 前台服务与保活
   └── /ios
         ├── AudioUnit.mm      // Obj-C++ 驱动
