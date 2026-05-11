@@ -37,6 +37,19 @@ public:
     [[nodiscard]] bool IsPlaying() const noexcept { return playing_; }
 
     /**
+     * 读取一个采样并前进读指针，实时安全。
+     * @return 当前采样值，播放完毕返回 0
+     */
+    float ReadOne() noexcept {
+        if (!playing_) return 0.0f;
+        if (readPos_ < sampleData_.size()) {
+            return sampleData_[readPos_++];
+        }
+        playing_ = false;
+        return 0.0f;
+    }
+
+    /**
      * 渲染 numFrames 帧到 out 缓冲区。
      * 播放中时逐帧输出 sampleData_[readPos_++] * gain，
      * 播放完毕或未播放时输出静音。

@@ -10,6 +10,19 @@ public class AudioEngine {
         System.loadLibrary("runbeat");
     }
 
+    // ========== 初始化和清理 ==========
+
+    /** 初始化引擎、生成采样、打开 AAudio 流 */
+    public static native void nativeInit();
+
+    /** 从 Assets 加载 WAV 采样文件 */
+    public static native boolean nativeLoadWavAssets(
+            android.content.res.AssetManager mgr,
+            String tickHiPath, String tickLoPath, String chimePath);
+
+    /** 释放引擎和 AAudio 流 */
+    public static native void nativeDestroy();
+
     // ========== JNI 探针 ==========
 
     public static native String nativeHello();
@@ -37,4 +50,9 @@ public class AudioEngine {
     // ========== 事件触发 ==========
 
     public static native void nativeTriggerChime();
+
+    // ========== 监控 ==========
+
+    /** 获取 AAudio XRun 计数 */
+    public static native int nativeGetXRunCount();
 }

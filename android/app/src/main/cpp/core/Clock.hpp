@@ -48,7 +48,22 @@ public:
     }
 
     /**
+     * 单步前进一帧，实时安全。
+     * @return true 如果本帧发生 tick 事件
+     */
+    bool Advance() noexcept {
+        framesToNextTick_ -= 1.0;
+        if (framesToNextTick_ <= 0.0) {
+            framesToNextTick_ += framesPerTick_;
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 处理 numFrames 个采样点，返回发生 tick 事件的帧索引数组。
+     * 注意：Process 内部堆分配，仅用于测试/离线处理，
+     *       音频回调中请使用 Advance()。
      * @param numFrames  本次回调的帧数
      * @return 所有发生 tick 的帧索引（0 ~ numFrames-1），已排序
      */
@@ -57,10 +72,8 @@ public:
         ticks.reserve(static_cast<size_t>(numFrames / framesPerTick_) + 1);
 
         for (int i = 0; i < numFrames; ++i) {
-            framesToNextTick_ -= 1.0;
-            if (framesToNextTick_ <= 0.0) {
+            if (Advance()) {
                 ticks.push_back(i);
-                framesToNextTick_ += framesPerTick_;
             }
         }
 

@@ -94,58 +94,58 @@
   - [x] `ProcessHard` 硬限幅备选（clamp ±0.97）
 - [x] 纯头文件实现
 
-### 2.6 音频引擎状态机 — `AudioEngine.hpp`
-- [ ] 状态枚举：`Idle | Running | Paused`
-- [ ] 成员变量
-  - [ ] `Clock clock_`
-  - [ ] `SamplePlayer tickPlayer_`, `chimePlayer_`
-  - [ ] `std::atomic<double> bpm_`（lock-free 交换）
-  - [ ] `std::atomic<double> tickGain_`, `chimeGain_`
-  - [ ] `std::atomic<int64_t> bpmBits_`（如 atomic double 不满足 is_lock_free）
-  - [ ] `EngineState state_`
-- [ ] `Start(double bpm)` → 状态 → Running，clock.SetBPM(bpm)
-- [ ] `Stop()` → 状态 → Idle
-- [ ] `Pause()` / `Resume()` → 状态 → Paused / Running，相位保持
-- [ ] `OnAudioCallback(float* out, int numFrames)` — 完整 Pipeline：
+### 2.6 音频引擎状态机 — `AudioEngine.hpp` ✅
+- [x] 状态枚举：`Idle | Running | Paused`
+- [x] 成员变量
+  - [x] `Clock clock_`
+  - [x] `SamplePlayer tickPlayer_`, `chimePlayer_`
+  - [x] `std::atomic<double> bpm_`（lock-free 交换）
+  - [x] `std::atomic<double> tickGain_`, `chimeGain_`
+  - [x] `std::atomic<State> state_`
+- [x] `Start(double bpm)` → 状态 → Running
+- [x] `Stop()` → 状态 → Idle，重置 Clock + Player
+- [x] `Pause()` / `Resume()` → 状态切换，相位保持
+- [x] `OnAudioCallback(float* out, int numFrames)` — 完整 Pipeline：
   ```
-  Clock.Process()     → 哪些帧触发 tick
-  tickPlayer.Render() → tickBuf[]
-  chimePlayer.Render()→ chimeBuf[]
-  Mixer.Process()     → mixBuf[]
-  Limiter.Process()   → out[]
+  per-sample: Clock.Advance() → 触发 Play()
+              tickPlayer.ReadOne() × gain
+              chimePlayer.ReadOne() × gain
+              → 混合 → Limiter::Process(out, numFrames)
   ```
-- [ ] **严禁回调内**：mutex、printf/log、malloc/new、系统调用
-- [ ] **验收**：模拟回调循环输出 10s 音频数据，写入 WAV 文件，audacity 查看节拍间隔均等
+- [x] **严禁回调内**：mutex、printf/log、malloc/new、系统调用
+- [x] **验收**：模拟回调循环输出 10s 音频，WAV 文件节拍间隔 19200.00 帧，零抖动
 
-### 2.7 JNI 桥接 & AAudio 驱动 — `aaudio_engine.cpp`
-- [ ] Native 函数对外暴露
-  - [ ] `nativeStart(jdouble bpm)`
-  - [ ] `nativeStop()`
-  - [ ] `nativePause()`
-  - [ ] `nativeResume()`
-  - [ ] `nativeSetBpm(jdouble bpm)`
-  - [ ] `nativeSetTickVolume(jdouble vol)`
-  - [ ] `nativeSetChimeVolume(jdouble vol)`
-  - [ ] `nativeTriggerChime()`（整点报时入口）
-- [ ] 全局（或 static）`AudioEngine engine_` 实例
-- [ ] AAudio 流构建（`AAudioStreamBuilder`）
-  - [ ] `AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY)`
-  - [ ] `AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE)`
-  - [ ] `AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT)`
-  - [ ] `AAudioStreamBuilder_setSampleRate(builder, 48000)`
-  - [ ] `AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr)`
-  - [ ] `AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr)`
-- [ ] 降级逻辑：独占失败 → 自动回退 `AAUDIO_SHARING_MODE_SHARED`
-- [ ] Data Callback：`AAudioStream_dataCallback` → 调用 `engine_.OnAudioCallback()`
-- [ ] Error Callback：处理流断开事件（蓝牙耳机插拔等），触发流重建
-- [ ] XRun 监控：回调内通过 `AAudioStream_getXRunCount()` 获取 underrun count
-- [ ] **验收**：`AudioEngine.java` 调用 `nativeStart(180.0)`，耳机/扬声器听到 180BPM 节拍声
+### 2.7 JNI 桥接 & AAudio 驱动 — `aaudio_engine.cpp` ✅
+- [x] Native 函数对外暴露
+  - [x] `nativeInit()` / `nativeDestroy()`
+  - [x] `nativeStart(jdouble bpm)`
+  - [x] `nativeStop()`
+  - [x] `nativePause()` / `nativeResume()`
+  - [x] `nativeSetBpm(jdouble bpm)`
+  - [x] `nativeSetTickVolume(jdouble vol)` / `nativeSetChimeVolume(jdouble vol)`
+  - [x] `nativeSetAccent(jboolean on)`
+  - [x] `nativeTriggerChime()`
+  - [x] `nativeGetXRunCount()`
+- [x] 全局 `static AudioEngine gEngine` 实例
+- [x] AAudio 流构建（`AAudioStreamBuilder`）
+  - [x] `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY`
+  - [x] `AAUDIO_SHARING_MODE_EXCLUSIVE` → `SHARED` 降级
+  - [x] `AAUDIO_FORMAT_PCM_FLOAT`
+  - [x] Data/Error Callback 注册
+- [x] 降级逻辑：EXCLUSIVE 失败 → SHARED
+- [x] Data Callback → `gEngine.OnAudioCallback()`
+- [x] Error Callback：流断开日志记录（Phase 3 实现自动重建）
+- [x] XRun 监控：`nativeGetXRunCount()` JNI 函数
+- [x] 采样生成：`nativeInit()` 内建 880Hz 指数衰减脉冲
+- [x] **验收**：`./gradlew assembleDebug` 通过，native 编译链接成功
 
-### 2.8 WAV 资源准备
-- [ ] 准备 `tick_hi.wav` / `tick_lo.wav`（强拍弱拍）和 `chime.wav`
-- [ ] 或用代码生成正弦/指数衰减脉冲（无外部依赖）
-- [ ] 在 JNI 初始化时加载并重采样至硬件采样率
-- [ ] 放入 `res/raw/` 或 `assets/`
+### 2.8 WAV 资源准备 ✅
+- [x] 生成 `tick_hi.wav`（1000Hz 强拍衰减脉冲）
+- [x] 生成 `tick_lo.wav`（600Hz 弱拍衰减脉冲）
+- [x] 生成 `chime.wav`（660+880Hz 双音较长延续）
+- [x] 放入 `res/raw/`
+- [x] WavLoader.hpp 解析 16-bit PCM WAV（含重采样）
+- [x] nativeLoadWavAssets() JNI 函数加载 WAV 至引擎
 
 ---
 

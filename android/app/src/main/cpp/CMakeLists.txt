@@ -11,6 +11,7 @@ target_link_libraries(runbeat
     PRIVATE
     runbeat_core
     aaudio
+    android
     log
 )
 target_include_directories(runbeat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
