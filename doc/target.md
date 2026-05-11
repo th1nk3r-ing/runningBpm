@@ -8,20 +8,20 @@
 
 **目标**：搭建可编译运行的最小 Android 工程（Java + XML），屏幕显示 "Hello RunBeat"。
 
-### 1.1 项目初始化
-- [ ] 用 Android Studio 或 CLI 创建 Android 项目骨架
-- [ ] 配置 Gradle Groovy DSL（`build.gradle`）
-  - [ ] minSdk = 26，targetSdk = 34
-  - [ ] 仅依赖 AndroidX AppCompat + Material Design
-- [ ] 配置 `AndroidManifest.xml`
-  - [ ] Activity 声明（launcher）
-  - [ ] `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` 权限（提前申领，Phase 3 用）
-  - [ ] `WAKE_LOCK` 权限
-- [ ] 创建 `MainActivity.java`
-  - [ ] `onCreate` → `setContentView(R.layout.activity_main)`
-  - [ ] 初始化一个 `TextView` 显示 "Hello RunBeat"
-- [ ] 创建 `res/layout/activity_main.xml`：基础线性布局，居中 `TextView`
-- [ ] **验收**：`./gradlew assembleDebug` 通过，安装到设备屏幕显示 "Hello RunBeat"
+### 1.1 项目初始化 ✅
+- [x] 用 Android Studio 或 CLI 创建 Android 项目骨架
+- [x] 配置 Gradle Groovy DSL（`build.gradle`）
+  - [x] minSdk = 26，targetSdk = 34
+  - [x] 仅依赖 AndroidX AppCompat + Material Design
+- [x] 配置 `AndroidManifest.xml`
+  - [x] Activity 声明（launcher）
+  - [x] `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` 权限（提前申领，Phase 3 用）
+  - [x] `WAKE_LOCK` 权限
+- [x] 创建 `MainActivity.java`
+  - [x] `onCreate` → `setContentView(R.layout.activity_main)`
+  - [x] 初始化一个 `TextView` 显示 "Hello RunBeat"
+- [x] 创建 `res/layout/activity_main.xml`：基础线性布局，居中 `TextView`
+- [x] **验收**：`./gradlew assembleDebug` 通过，安装到设备屏幕显示 "Hello RunBeat"
 
 ### 1.2 基础骨架搭建
 - [ ] 设计 `activity_main.xml` 整体布局框架（用 ViewGroup 占位，Phase 3 填入实际控件）
