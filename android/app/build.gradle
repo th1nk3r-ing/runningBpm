@@ -4,7 +4,7 @@ plugins {
 
 def getGitCommit() {
     try {
-        return "git describe --always --dirty".execute(null, project.rootDir).text.trim()
+        return "git describe --always".execute(null, project.rootDir).text.trim()
     } catch (Exception e) {
         return "unknown"
     }
@@ -30,6 +30,12 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
+        }
+    }
+
+    android.applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach {
+            outputFileName = "RunBeatPro-v${defaultConfig.versionName}-${getGitCommit()}-${variant.buildType.name}.apk"
         }
     }
 
