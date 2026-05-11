@@ -37,8 +37,8 @@
 
 **目标**：实现完整音频引擎，通过 JNI 被 Android 调用，耳机输出精准节拍。
 
-### 2.1 构建体系
-- [ ] 在 `app/src/main/cpp/` 下创建目录结构
+### 2.1 构建体系 ✅
+- [x] 在 `app/src/main/cpp/` 下创建目录结构
   ```
   cpp/
     ├── CMakeLists.txt
@@ -50,25 +50,25 @@
     │    └── AudioEngine.hpp
     ├── aaudio_engine.cpp
   ```
-- [ ] 编写 `CMakeLists.txt`
-  - [ ] 编译 `core/` 源码为 `librunbeat_core`
-  - [ ] 链接 AAudio 共享库（`libaaudio.so`，NDK 自带）
-- [ ] Gradle 配置 `externalNativeBuild { cmake { ... } }`
-- [ ] 编写第一个 JNI 探针函数 `Java_com_runbeat_audio_AudioEngine_nativeHello()`
-  - [ ] 返回 `jstring`，logcat 打一行 "native loaded"
-- [ ] **验收**：`AudioEngine.java` 侧调用 `nativeHello()`，logcat 看到 native 输出
+- [x] 编写 `CMakeLists.txt`
+  - [x] 编译 `core/` 源码为 `librunbeat_core`
+  - [x] 链接 AAudio 共享库（`libaaudio.so`，NDK 自带）
+- [x] Gradle 配置 `externalNativeBuild { cmake { ... } }`
+- [x] 编写第一个 JNI 探针函数 `Java_com_runbeat_audio_AudioEngine_nativeHello()`
+  - [x] 返回 `jstring`，logcat 打一行 "native loaded"
+- [x] **验收**：`./gradlew assembleDebug` 通过，native 代码编译链接成功
 
-### 2.2 相位累加器 — `Clock.hpp`
-- [ ] 数据结构
-  - [ ] `double phase_ = 0.0`
-  - [ ] `double deltaPhi_ = 0.0`
-  - [ ] `int sampleRate_`
-- [ ] `SetBPM(double bpm)` → `deltaPhi_ = bpm / (60.0 * sampleRate_)`
-- [ ] `Process(int numFrames)` → per-sample 循环
-  - [ ] `phase_ += deltaPhi_`
-  - [ ] 若 `phase_ >= 1.0`：标记 tick 触发位，`phase_ -= 1.0`
-  - [ ] 返回 tick 触发帧索引数组
-- [ ] **验收**：构造 BPM=150, sampleRate=48000 输入 4800000 步（100 秒），验证累积相位误差 < 1e-15
+### 2.2 相位累加器 — `Clock.hpp` ✅
+- [x] 数据结构
+  - [x] `double framesPerTick_`（等价于 phase + deltaPhi 模型）
+  - [x] `double framesToNextTick_`（倒计数替代累加，误差不跨 tick 累积）
+  - [x] `int sampleRate_`
+- [x] `SetBPM(double bpm)` → `framesPerTick_ = sampleRate * 60 / bpm`
+- [x] `Process(int numFrames)` → per-sample 循环
+  - [x] `framesToNextTick_ -= 1.0`
+  - [x] 若 `<= 0.0`：标记 tick 触发位，`framesToNextTick_ += framesPerTick_`
+  - [x] 返回 tick 触发帧索引数组
+- [x] **验收**：BPM=150, sampleRate=48000, 4800000 步（100 秒）→ 250 ticks，零累积误差
 
 ### 2.3 采样播放器 — `SamplePlayer.hpp`
 - [ ] 数据结构

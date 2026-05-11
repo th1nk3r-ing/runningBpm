@@ -10,6 +10,10 @@ public class AudioEngine {
         System.loadLibrary("runbeat");
     }
 
+    // ========== JNI 探针 ==========
+
+    public static native String nativeHello();
+
     // ========== 引擎生命周期 ==========
 
     public static native void nativeStart(double bpm);
