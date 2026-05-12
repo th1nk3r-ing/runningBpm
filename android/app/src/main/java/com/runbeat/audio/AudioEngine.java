@@ -47,6 +47,13 @@ public class AudioEngine {
 
     public static native void nativeSetAccent(boolean on);
 
+    // ========== 音色切换 ==========
+
+    /** 运行时替换 tick 样本（从 Assets 加载 + pitch shift 生成弱拍） */
+    public static native void nativeLoadSoundPack(
+            android.content.res.AssetManager mgr,
+            String tickHiPath, double pitchRatio);
+
     // ========== 事件触发 ==========
 
     public static native void nativeTriggerChime();

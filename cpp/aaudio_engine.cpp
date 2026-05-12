@@ -36,6 +36,27 @@ static std::vector<float> GenerateTickSample(int sampleRate) {
     return data;
 }
 
+/** 线性插值 pitch shift — ratio < 1 降调（样本数增加），ratio > 1 升调 */
+static std::vector<float> PitchShift(const float* input, size_t inputLen, double ratio) {
+    if (ratio <= 0.0 || std::abs(ratio - 1.0) < 1e-9) {
+        return std::vector<float>(input, input + inputLen);
+    }
+    size_t outLen = static_cast<size_t>(inputLen / ratio);
+    std::vector<float> output(outLen);
+    for (size_t i = 0; i < outLen; ++i) {
+        double srcPos = i * ratio;
+        size_t idx = static_cast<size_t>(srcPos);
+        double frac = srcPos - idx;
+        if (idx + 1 < inputLen) {
+            output[i] = static_cast<float>(
+                input[idx] * (1.0 - frac) + input[idx + 1] * frac);
+        } else {
+            output[i] = input[idx];
+        }
+    }
+    return output;
+}
+
 // ========== WAV 资源加载 ==========
 
 /** 从 Android Assets 加载 WAV 文件 */
@@ -241,6 +262,32 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetAccent(JNIEnv * /*env*/, jclass /*clazz*/, jboolean on) {
     LOGI("nativeSetAccent(%d)", on);
     gEngine.SetAccent(static_cast<bool>(on));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
+        JNIEnv* env, jclass /*clazz*/,
+        jobject assetManagerObj,
+        jstring tickHiPath, jdouble pitchRatio) {
+    AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
+    if (!mgr) return;
+
+    const char* cPath = env->GetStringUTFChars(tickHiPath, nullptr);
+    LOGI("nativeLoadSoundPack: %s (ratio=%.2f)", cPath, static_cast<double>(pitchRatio));
+
+    std::vector<float> samples;
+    bool ok = LoadWavFromAsset(mgr, cPath, samples, 48000);
+    env->ReleaseStringUTFChars(tickHiPath, cPath);
+
+    if (!ok || samples.empty()) {
+        LOGE("nativeLoadSoundPack: failed to load %s", cPath);
+        return;
+    }
+
+    auto tickLo = PitchShift(samples.data(), samples.size(),
+                             static_cast<double>(pitchRatio));
+    gEngine.LoadSoundPack(samples.data(), samples.size(),
+                          tickLo.data(), tickLo.size());
 }
 
 extern "C" JNIEXPORT void JNICALL

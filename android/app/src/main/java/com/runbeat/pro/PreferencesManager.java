@@ -9,10 +9,12 @@ public class PreferencesManager {
     private static final String KEY_BPM = "bpm";
     private static final String KEY_TICK_VOLUME = "tick_volume";
     private static final String KEY_ACCENT = "accent";
+    private static final String KEY_TIMBRE = "timbre";
 
     private static final float DEFAULT_BPM = 180.0f;
     private static final int DEFAULT_TICK_VOLUME = 80;
     private static final boolean DEFAULT_ACCENT = true;
+    private static final int DEFAULT_TIMBRE = 0;
 
     private final SharedPreferences prefs;
 
@@ -42,5 +44,13 @@ public class PreferencesManager {
 
     public void setAccentEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_ACCENT, enabled).apply();
+    }
+
+    public int getTimbre() {
+        return prefs.getInt(KEY_TIMBRE, DEFAULT_TIMBRE);
+    }
+
+    public void setTimbre(int index) {
+        prefs.edit().putInt(KEY_TIMBRE, index).apply();
     }
 }

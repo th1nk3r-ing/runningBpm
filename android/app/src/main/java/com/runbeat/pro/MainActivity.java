@@ -1,5 +1,8 @@
 package com.runbeat.pro;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.os.Bundle;
@@ -8,7 +11,9 @@ import android.os.Looper;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.LinearInterpolator;
 import android.widget.Button;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -23,13 +28,15 @@ public class MainActivity extends AppCompatActivity {
     // ===== 控件 =====
     private View viewStatusDot;
     private TextView tvStatus;
-    private Switch switchLock;
+    private Button btnLock;
+    private ProgressBar unlockProgress;
     private TextView tvTimer;
     private TextView tvBpm;
     private Button btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5;
     private Button btnStartPause;
     private SeekBar sbTickVolume;
     private Switch switchAccent;
+    private Button btnTimbre;
     private View layoutBpmControls, layoutParams;
     private TextView tvBuildInfo;
 
@@ -39,6 +46,12 @@ public class MainActivity extends AppCompatActivity {
     private boolean isPaused = false;
     private int elapsedSeconds = 0;
     private boolean isLocked = false;
+    private int timbreIndex = 0;
+
+    // ===== 音色包 =====
+    private static final Object[][] SOUND_PACKS = {
+        {"默认", "sounds/default/tick_hi.wav", 0.68},
+    };
 
     // ===== 计时器 =====
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
@@ -64,9 +77,12 @@ public class MainActivity extends AppCompatActivity {
     private final Handler prefsSaveHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingBpmSave = null;
 
-    // ===== 解锁长按 =====
-    private final Handler unlockHandler = new Handler(Looper.getMainLooper());
-    private Runnable unlockRunnable = null;
+    // ===== 解锁动画 =====
+    private ObjectAnimator unlockAnimator = null;
+
+    // ===== 自动锁定 =====
+    private final Handler autoLockHandler = new Handler(Looper.getMainLooper());
+    private Runnable autoLockRunnable = null;
 
     // ===== 生命周期 =====
 
@@ -80,7 +96,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化 Native 引擎
         AudioEngine.nativeInit();
-        AudioEngine.nativeLoadWavAssets(getAssets(), "tick_hi.wav", "tick_lo.wav", "chime.wav");
+        AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "chime.wav");
 
         // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
         prefsManager = new PreferencesManager(this);
@@ -105,6 +121,12 @@ public class MainActivity extends AppCompatActivity {
         AudioEngine.nativeSetBpm(bpm);
         AudioEngine.nativeSetTickVolume(savedVolume / 100.0f);
 
+        // 恢复音色
+        timbreIndex = prefsManager.getTimbre();
+        if (timbreIndex >= 0 && timbreIndex < SOUND_PACKS.length) {
+            loadTimbre(timbreIndex);
+        }
+
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
     }
 
@@ -128,7 +150,8 @@ public class MainActivity extends AppCompatActivity {
     private void bindViews() {
         viewStatusDot = findViewById(R.id.viewStatusDot);
         tvStatus = findViewById(R.id.tvStatus);
-        switchLock = findViewById(R.id.switchLock);
+        btnLock = findViewById(R.id.btnLock);
+        unlockProgress = findViewById(R.id.unlockProgress);
         tvTimer = findViewById(R.id.tvTimer);
         tvBpm = findViewById(R.id.tvBpm);
         btnBpmMinus5 = findViewById(R.id.btnBpmMinus5);
@@ -138,6 +161,7 @@ public class MainActivity extends AppCompatActivity {
         btnStartPause = findViewById(R.id.btnStartPause);
         sbTickVolume = findViewById(R.id.sbTickVolume);
         switchAccent = findViewById(R.id.switchAccent);
+        btnTimbre = findViewById(R.id.btnTimbre);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
         layoutParams = findViewById(R.id.layoutParams);
         tvBuildInfo = findViewById(R.id.tvBuildInfo);
@@ -174,46 +198,100 @@ public class MainActivity extends AppCompatActivity {
             prefsManager.setAccentEnabled(isChecked);
         });
 
-        switchLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-                // 锁定：立即生效
+        btnTimbre.setOnClickListener(v -> {
+            int next = (timbreIndex + 1) % SOUND_PACKS.length;
+            loadTimbre(next);
+        });
+
+        btnLock.setOnClickListener(v -> {
+            if (!isLocked) {
                 isLocked = true;
                 updateLockState();
-            } else if (isLocked) {
-                // 已锁定状态下尝试关闭 → 驳回，必须长按 2s 解锁
-                buttonView.setChecked(true);
-                Toast.makeText(this, "长按锁定图标 2 秒解锁", Toast.LENGTH_SHORT).show();
-            } else {
-                isLocked = false;
-                updateLockState();
+                Toast.makeText(this, "已锁定", Toast.LENGTH_SHORT).show();
             }
         });
 
-        switchLock.setOnTouchListener((v, event) -> {
+        btnLock.setOnTouchListener((v, event) -> {
             if (!isLocked) return false;
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    Toast.makeText(this, "继续按住 2 秒解锁", Toast.LENGTH_SHORT).show();
-                    unlockRunnable = () -> {
-                        isLocked = false;
-                        switchLock.setChecked(false);
-                        updateLockState();
-                        v.setPressed(false);
-                        Toast.makeText(this, "已解锁", Toast.LENGTH_SHORT).show();
-                    };
-                    unlockHandler.postDelayed(unlockRunnable, 2000);
+                    startUnlockProgress();
                     return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    if (unlockRunnable != null) {
-                        unlockHandler.removeCallbacks(unlockRunnable);
-                        unlockRunnable = null;
-                    }
+                    cancelUnlockProgress();
                     v.setPressed(false);
                     return true;
             }
-            return true;
+            return false;
         });
+    }
+
+    // ===== 音色切换 =====
+
+    private void loadTimbre(int index) {
+        if (index < 0 || index >= SOUND_PACKS.length) return;
+        timbreIndex = index;
+        String name = (String) SOUND_PACKS[index][0];
+        String path = (String) SOUND_PACKS[index][1];
+        double ratio = (Double) SOUND_PACKS[index][2];
+        AudioEngine.nativeLoadSoundPack(getAssets(), path, ratio);
+        btnTimbre.setText(name);
+        prefsManager.setTimbre(index);
+    }
+
+    // ===== 解锁动画 =====
+
+    private void startUnlockProgress() {
+        cancelUnlockProgress();
+        unlockProgress.setProgress(0);
+        unlockAnimator = ObjectAnimator.ofInt(unlockProgress, "progress", 0, 2000);
+        unlockAnimator.setDuration(2000);
+        unlockAnimator.setInterpolator(new LinearInterpolator());
+        unlockAnimator.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (isLocked) {
+                    isLocked = false;
+                    updateLockState();
+                    Toast.makeText(MainActivity.this, "已解锁", Toast.LENGTH_SHORT).show();
+                    if (isRunning && !isPaused) {
+                        scheduleAutoLock();
+                    }
+                }
+            }
+        });
+        unlockAnimator.start();
+    }
+
+    private void cancelUnlockProgress() {
+        if (unlockAnimator != null) {
+            unlockAnimator.removeAllListeners();
+            unlockAnimator.cancel();
+            unlockAnimator = null;
+        }
+        unlockProgress.setProgress(0);
+    }
+
+    // ===== 自动锁定 =====
+
+    private void scheduleAutoLock() {
+        cancelAutoLock();
+        autoLockRunnable = () -> {
+            if (isRunning && !isPaused && !isLocked) {
+                isLocked = true;
+                updateLockState();
+                Toast.makeText(MainActivity.this, "已自动锁定", Toast.LENGTH_SHORT).show();
+            }
+        };
+        autoLockHandler.postDelayed(autoLockRunnable, 60_000);
+    }
+
+    private void cancelAutoLock() {
+        if (autoLockRunnable != null) {
+            autoLockHandler.removeCallbacks(autoLockRunnable);
+            autoLockRunnable = null;
+        }
     }
 
     // ===== BPM 调节 =====
@@ -331,16 +409,19 @@ public class MainActivity extends AppCompatActivity {
             elapsedSeconds = 0;
             AudioEngine.nativeStart(bpm);
             timerHandler.post(timerRunnable);
+            scheduleAutoLock();
         } else if (isPaused) {
             // RESUME
             isPaused = false;
             AudioEngine.nativeResume();
             timerHandler.post(timerRunnable);
+            scheduleAutoLock();
         } else {
             // PAUSE
             isPaused = true;
             AudioEngine.nativePause();
             timerHandler.removeCallbacks(timerRunnable);
+            cancelAutoLock();
         }
         updateUI();
 
@@ -391,6 +472,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateLockState() {
         boolean enabled = !isLocked;
+        btnLock.setText(isLocked ? "🔒" : "🔓");
         for (int id : new int[]{
                 R.id.btnBpmMinus5, R.id.btnBpmMinus1,
                 R.id.btnBpmPlus1, R.id.btnBpmPlus5,
@@ -399,5 +481,6 @@ public class MainActivity extends AppCompatActivity {
         }
         sbTickVolume.setEnabled(enabled);
         switchAccent.setEnabled(enabled);
+        btnTimbre.setEnabled(enabled);
     }
 }

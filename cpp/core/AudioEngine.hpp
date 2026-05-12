@@ -99,7 +99,20 @@ public:
 
     // ===== 音频回调（实时线程，严禁阻塞/分配） =====
 
+    /** 运行时替换 tick 样本（线程安全，需先设置 loading 标志） */
+    void LoadSoundPack(const float* tickHi, size_t tickHiLen,
+                        const float* tickLo, size_t tickLoLen) noexcept {
+        loading_.store(true, std::memory_order_relaxed);
+        tickPlayer_.Load(tickHi, tickHiLen);
+        tickLoPlayer_.Load(tickLo, tickLoLen);
+        loading_.store(false, std::memory_order_relaxed);
+    }
+
     void OnAudioCallback(float* out, int numFrames) noexcept {
+        if (loading_.load(std::memory_order_relaxed)) {
+            for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
+            return;
+        }
         if (state_.load(std::memory_order_relaxed) != State::Running) {
             for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
             return;
@@ -137,6 +150,8 @@ private:
     SamplePlayer tickPlayer_;
     SamplePlayer tickLoPlayer_;
     SamplePlayer chimePlayer_;
+
+    std::atomic<bool> loading_{false};
 
     std::atomic<double> bpm_{180.0};
     std::atomic<double> tickGain_{0.8};
