@@ -57,6 +57,13 @@ public class MainActivity extends AppCompatActivity {
     private final Handler bpmHoldHandler = new Handler(Looper.getMainLooper());
     private Runnable bpmHoldRunnable = null;
 
+    // ===== 持久化 =====
+    private PreferencesManager prefsManager;
+
+    // ===== BPM 持久化防抖 =====
+    private final Handler prefsSaveHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingBpmSave = null;
+
     // ===== 解锁长按 =====
     private final Handler unlockHandler = new Handler(Looper.getMainLooper());
     private Runnable unlockRunnable = null;
@@ -75,14 +82,28 @@ public class MainActivity extends AppCompatActivity {
         AudioEngine.nativeInit();
         AudioEngine.nativeLoadWavAssets(getAssets(), "tick_hi.wav", "tick_lo.wav", "chime.wav");
 
+        // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
+        prefsManager = new PreferencesManager(this);
+        bpm = prefsManager.getBpm();
+        int savedVolume = prefsManager.getTickVolume();
+        boolean savedAccent = prefsManager.isAccentEnabled();
+
         if (savedInstanceState != null) {
-            bpm = savedInstanceState.getDouble("bpm", 180.0);
+            bpm = savedInstanceState.getDouble("bpm", bpm);
             elapsedSeconds = savedInstanceState.getInt("elapsed", 0);
             isRunning = savedInstanceState.getBoolean("running", false);
             isPaused = savedInstanceState.getBoolean("paused", false);
         }
 
         updateUI();
+
+        // 恢复 UI 控件状态（需要在 updateUI 之后，避免被覆盖）
+        sbTickVolume.setProgress(savedVolume);
+        switchAccent.setChecked(savedAccent);
+
+        // 同步 Native 引擎（即使未启动，确保参数就绪）
+        AudioEngine.nativeSetBpm(bpm);
+        AudioEngine.nativeSetTickVolume(savedVolume / 100.0f);
 
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
     }
@@ -141,6 +162,7 @@ public class MainActivity extends AppCompatActivity {
                 if (fromUser) {
                     float vol = progress / 100.0f;
                     AudioEngine.nativeSetTickVolume(vol);
+                    prefsManager.setTickVolume(progress);
                 }
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
@@ -149,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
 
         switchAccent.setOnCheckedChangeListener((buttonView, isChecked) -> {
             AudioEngine.nativeSetAccent(isChecked);
+            prefsManager.setAccentEnabled(isChecked);
         });
 
         switchLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -207,6 +230,9 @@ public class MainActivity extends AppCompatActivity {
 
             // 触觉反馈
             btnBpmMinus5.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+
+            // 持久化 BPM（防抖）
+            scheduleBpmSave();
         }
     }
 
@@ -261,6 +287,25 @@ public class MainActivity extends AppCompatActivity {
             bpmHoldHandler.removeCallbacks(bpmHoldRunnable);
             bpmHoldRunnable = null;
         }
+        // 长按结束时立即持久化 BPM
+        if (pendingBpmSave != null) {
+            prefsSaveHandler.removeCallbacks(pendingBpmSave);
+            prefsManager.setBpm(bpm);
+            pendingBpmSave = null;
+        }
+    }
+
+    // ===== BPM 持久化防抖 =====
+
+    private void scheduleBpmSave() {
+        if (pendingBpmSave != null) {
+            prefsSaveHandler.removeCallbacks(pendingBpmSave);
+        }
+        pendingBpmSave = () -> {
+            prefsManager.setBpm(bpm);
+            pendingBpmSave = null;
+        };
+        prefsSaveHandler.postDelayed(pendingBpmSave, 300);
     }
 
     // ===== BPM 数字缩放动画 =====
