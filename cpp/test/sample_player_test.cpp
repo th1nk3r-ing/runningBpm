@@ -4,7 +4,7 @@
  * 编译：g++ -std=c++17 -O2 -I. -o sample_player_test sample_player_test.cpp && ./sample_player_test
  */
 
-#include "core/SamplePlayer.hpp"
+#include "../core/SamplePlayer.hpp"
 #include <cstdio>
 #include <cmath>
 

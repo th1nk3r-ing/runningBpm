@@ -4,7 +4,7 @@
  * 编译：g++ -std=c++17 -O2 -I. -o mixer_test mixer_test.cpp && ./mixer_test
  */
 
-#include "core/Mixer.hpp"
+#include "../core/Mixer.hpp"
 #include <cstdio>
 #include <cmath>
 

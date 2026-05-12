@@ -4,7 +4,7 @@
  * 编译：g++ -std=c++17 -O2 -I. -o limiter_test limiter_test.cpp && ./limiter_test
  */
 
-#include "core/Limiter.hpp"
+#include "../core/Limiter.hpp"
 #include <cstdio>
 #include <cmath>
 

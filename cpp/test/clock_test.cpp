@@ -7,7 +7,7 @@
  * 编译：g++ -std=c++17 -O2 -o clock_test clock_test.cpp && ./clock_test
  */
 
-#include "core/Clock.hpp"
+#include "../core/Clock.hpp"
 #include <cstdio>
 #include <cmath>
 

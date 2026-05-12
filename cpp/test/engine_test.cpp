@@ -7,7 +7,7 @@
  * 编译：g++ -std=c++17 -O2 -I. -o engine_test engine_test.cpp && ./engine_test
  */
 
-#include "core/AudioEngine.hpp"
+#include "../core/AudioEngine.hpp"
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
