@@ -2,7 +2,7 @@
  * WAV 资源生成器
  *
  * 编译：g++ -std=c++17 -O2 -I. -o gen_wav gen_wav.cpp && ./gen_wav
- * 输出：../res/raw/tick_hi.wav, tick_lo.wav, chime.wav
+ * 输出：../android/app/src/main/assets/sounds/default/tick_hi.wav, tick_lo.wav, chime.wav
  */
 
 #include "core/WavLoader.hpp"
@@ -38,7 +38,7 @@ int main() {
         printf("Wrote %s: %zu bytes\n", path.c_str(), data.size());
     };
 
-    std::string outDir = "/Users/thinker/Desktop/work/runningBpm/android/app/src/main/res/raw";
+    std::string outDir = "/Users/thinker/Desktop/work/runningBpm/android/app/src/main/assets/sounds/default";
     writeFile(outDir + "/tick_hi.wav", wavHi);
     writeFile(outDir + "/tick_lo.wav", wavLo);
     writeFile(outDir + "/chime.wav", wavChime);
