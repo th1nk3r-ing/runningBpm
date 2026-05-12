@@ -81,9 +81,11 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
     env->ReleaseStringUTFChars(tickHiPath, cTickHi);
     if (tickOk) gEngine.LoadTickSamples(samples.data(), samples.size());
 
-    // tick_lo (optional — for accent support, same as tick for now)
+    // tick_lo (accent)
     const char* cTickLo = env->GetStringUTFChars(tickLoPath, nullptr);
-    LoadWavFromAsset(mgr, cTickLo, samples, targetRate);
+    if (LoadWavFromAsset(mgr, cTickLo, samples, targetRate)) {
+        gEngine.LoadTickLoSamples(samples.data(), samples.size());
+    }
     env->ReleaseStringUTFChars(tickLoPath, cTickLo);
 
     // chime

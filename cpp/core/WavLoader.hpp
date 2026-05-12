@@ -55,10 +55,13 @@ public:
                 if (bitsPerSample != 16) return false; // 16-bit only
 
             } else if (chunkId == 0x61746164) { // "data"
-                int16_t* pcmData = reinterpret_cast<int16_t*>(
-                    const_cast<uint8_t*>(wavData) + pos);
                 int numSamples = static_cast<int>(chunkSize / 2);
-                rawPcm.assign(pcmData, pcmData + numSamples);
+                rawPcm.resize(numSamples);
+                for (int i = 0; i < numSamples; ++i) {
+                    rawPcm[i] = static_cast<int16_t>(
+                        wavData[pos + i * 2]
+                        | (static_cast<uint16_t>(wavData[pos + i * 2 + 1]) << 8));
+                }
             }
 
             pos = nextPos;

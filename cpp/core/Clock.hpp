@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <algorithm>
 
 /**
  * 相位累加器 — 跨 buffer 维护连续相位，消除累积量化误差。
@@ -83,8 +84,9 @@ public:
 private:
     void UpdateFramesPerTick() noexcept {
         if (bpm_ > 0.0 && sampleRate_ > 0) {
-            framesPerTick_ = static_cast<double>(sampleRate_) * 60.0 / bpm_;
-            framesToNextTick_ = framesPerTick_;  // 第一个 tick 发生在一个完整间隔后
+            double clampedBpm = bpm_;
+            framesPerTick_ = static_cast<double>(sampleRate_) * 60.0 / clampedBpm;
+            framesToNextTick_ = framesPerTick_;
         }
     }
 

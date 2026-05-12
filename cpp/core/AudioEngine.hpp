@@ -39,6 +39,7 @@ public:
     void Stop() noexcept {
         state_.store(State::Idle, std::memory_order_relaxed);
         tickPlayer_.Stop();
+        tickLoPlayer_.Stop();
         chimePlayer_.Stop();
         clock_.Reset();
     }
@@ -88,6 +89,10 @@ public:
         tickPlayer_.Load(data, length);
     }
 
+    void LoadTickLoSamples(const float* data, size_t length) noexcept {
+        tickLoPlayer_.Load(data, length);
+    }
+
     void LoadChimeSamples(const float* data, size_t length) noexcept {
         chimePlayer_.Load(data, length);
     }
@@ -107,14 +112,19 @@ public:
         }
         float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed));
         float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed));
+        bool accent = accentOn_.load(std::memory_order_relaxed);
 
         // Per-sample 处理
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
-                tickPlayer_.Play();
+                if (accent) {
+                    tickPlayer_.Play();
+                } else {
+                    tickLoPlayer_.Play();
+                }
             }
 
-            float s = tickPlayer_.ReadOne() * tickGain
+            float s = (accent ? tickPlayer_ : tickLoPlayer_).ReadOne() * tickGain
                     + chimePlayer_.ReadOne() * chimeGain;
             out[i] = s;
         }
@@ -125,6 +135,7 @@ public:
 private:
     Clock clock_;
     SamplePlayer tickPlayer_;
+    SamplePlayer tickLoPlayer_;
     SamplePlayer chimePlayer_;
 
     std::atomic<double> bpm_{180.0};
