@@ -1,25 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/background"
-    android:padding="12dp">
+    android:fillViewport="true">
 
-    <!-- 状态区：运行指示灯 + 文字 + 锁定按钮 -->
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="16dp">
+
+    <!-- 状态区：圆点 + 状态文字 + 锁按钮 -->
     <LinearLayout
         android:id="@+id/layoutStatusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="4dp"
         android:layout_marginBottom="8dp">
 
         <View
             android:id="@+id/viewStatusDot"
-            android:layout_width="12dp"
-            android:layout_height="12dp"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
             android:layout_marginEnd="8dp"
             android:background="@drawable/status_dot" />
 
@@ -30,17 +36,18 @@
             android:layout_weight="1"
             android:text="STOPPED"
             android:textColor="@color/textPrimary"
-            android:textSize="20sp" />
+            android:textSize="16sp"
+            android:letterSpacing="0.1" />
 
         <FrameLayout
-            android:layout_width="92dp"
-            android:layout_height="92dp">
+            android:layout_width="64dp"
+            android:layout_height="64dp">
 
             <ProgressBar
                 android:id="@+id/unlockProgress"
                 style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="92dp"
-                android:layout_height="92dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:progressDrawable="@drawable/circular_progress"
                 android:max="2000"
                 android:progress="0"
@@ -49,145 +56,155 @@
 
             <Button
                 android:id="@+id/btnLock"
-                android:layout_width="62dp"
-                android:layout_height="62dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:layout_gravity="center"
                 android:text="🔓"
-                android:textSize="24sp"
+                android:textSize="18sp"
                 android:gravity="center"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
                 android:background="@drawable/btn_lock" />
         </FrameLayout>
     </LinearLayout>
 
-    <!-- 分隔线 -->
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#333333"
-        android:layout_marginBottom="16dp" />
-
-    <!-- 计时区 -->
-    <TextView
-        android:id="@+id/tvTimer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="00:00:00"
-        android:textColor="@color/textPrimary"
-        android:textSize="40sp"
-        android:typeface="monospace"
-        android:gravity="center"
+        android:background="#262626"
         android:layout_marginBottom="12dp" />
 
-    <!-- BPM 核心区（数字 + BPM 标签并排） -->
-    <LinearLayout
+    <!-- BPM 核心区：绝对主视觉，超大数字 -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
-        android:layout_marginBottom="20dp">
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp">
 
         <TextView
             android:id="@+id/tvBpm"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center"
             android:text="180"
             android:textColor="@color/textPrimary"
-            android:textSize="76sp"
-            android:textStyle="bold" />
+            android:textSize="120sp"
+            android:textStyle="bold"
+            android:includeFontPadding="false"
+            android:letterSpacing="-0.04" />
 
         <TextView
             android:id="@+id/tvBpmLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|bottom"
+            android:layout_marginBottom="6dp"
             android:text="BPM"
             android:textColor="@color/colorPrimary"
-            android:textSize="20sp"
-            android:layout_marginStart="8dp" />
-    </LinearLayout>
+            android:textSize="14sp"
+            android:letterSpacing="0.3"
+            android:textStyle="bold" />
+    </FrameLayout>
 
-    <!-- 分隔线 -->
-    <View
+    <!-- 计时区：相对于 BPM 弱化 -->
+    <TextView
+        android:id="@+id/tvTimer"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#333333"
-        android:layout_marginBottom="16dp" />
+        android:layout_height="wrap_content"
+        android:text="00:00:00"
+        android:textColor="#9E9E9E"
+        android:textSize="22sp"
+        android:typeface="monospace"
+        android:gravity="center"
+        android:layout_marginBottom="20dp" />
 
-    <!-- 调节区：[-5] [-1] [+1] [+5] -->
+    <!-- 调节区：[-5] [-1] [+1] [+5]  44dp+ 触控热区 -->
     <LinearLayout
         android:id="@+id/layoutBpmControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="14dp">
 
         <Button
             android:id="@+id/btnBpmMinus5"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="56dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="-5"
-            android:textSize="18sp"
+            android:textSize="20sp"
+            android:textStyle="bold"
             android:background="@drawable/btn_bpm_control" />
 
         <Button
             android:id="@+id/btnBpmMinus1"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="56dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="-1"
-            android:textSize="18sp"
+            android:textSize="20sp"
+            android:textStyle="bold"
             android:background="@drawable/btn_bpm_control" />
 
         <Button
             android:id="@+id/btnBpmPlus1"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="56dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="+1"
-            android:textSize="18sp"
+            android:textSize="20sp"
+            android:textStyle="bold"
             android:background="@drawable/btn_bpm_control" />
 
         <Button
             android:id="@+id/btnBpmPlus5"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="56dp"
             android:layout_weight="1"
             android:text="+5"
-            android:textSize="18sp"
+            android:textSize="20sp"
+            android:textStyle="bold"
             android:background="@drawable/btn_bpm_control" />
     </LinearLayout>
 
-    <!-- 控制区：START / PAUSE -->
+    <!-- 控制区：START / PAUSE 主操作按钮 -->
     <Button
         android:id="@+id/btnStartPause"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="60dp"
         android:text="START"
-        android:textSize="20sp"
+        android:textSize="22sp"
         android:textStyle="bold"
+        android:letterSpacing="0.15"
         android:background="@drawable/btn_start_pause"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="20dp" />
 
-    <!-- 参数区：音量单独一行 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#262626"
+        android:layout_marginBottom="12dp" />
+
+    <!-- 参数区：音量 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="6dp">
 
         <TextView
             android:id="@+id/tvTickVolumeLabel"
-            android:layout_width="wrap_content"
+            android:layout_width="64dp"
             android:layout_height="wrap_content"
-            android:text="Tick Vol"
+            android:text="音量"
             android:textColor="@color/textPrimary"
-            android:textSize="14sp"
-            android:layout_marginEnd="8dp" />
+            android:textSize="14sp" />
 
         <SeekBar
             android:id="@+id/sbTickVolume"
@@ -197,26 +214,27 @@
             android:max="100"
             android:progress="80"
             android:thumbTint="@color/colorPrimary"
-            android:progressTint="@color/colorPrimary" />
+            android:progressTint="@color/colorPrimary"
+            android:progressBackgroundTint="#444444" />
     </LinearLayout>
 
-    <!-- 参数区：Accent + 音色 -->
+    <!-- 参数区：Accent -->
     <LinearLayout
         android:id="@+id/layoutParams"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="6dp">
 
         <TextView
             android:id="@+id/tvAccentLabel"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Accent"
+            android:layout_weight="1"
+            android:text="重音 (强弱拍)"
             android:textColor="@color/textPrimary"
-            android:textSize="14sp"
-            android:layout_marginEnd="8dp" />
+            android:textSize="14sp" />
 
         <Switch
             android:id="@+id/switchAccent"
@@ -225,17 +243,34 @@
             android:checked="true"
             android:thumbTint="@color/colorPrimary"
             android:trackTint="@color/colorPrimaryVariant" />
+    </LinearLayout>
+
+    <!-- 参数区：音色（独立行） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="音色"
+            android:textColor="@color/textPrimary"
+            android:textSize="14sp" />
 
         <Button
             android:id="@+id/btnTimbre"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="音色"
-            android:textSize="12sp"
-            android:layout_marginStart="12dp"
+            android:layout_height="40dp"
+            android:minWidth="96dp"
+            android:text="默认"
+            android:textSize="13sp"
             android:background="@drawable/btn_bpm_control"
-            android:paddingLeft="8dp"
-            android:paddingRight="8dp"
+            android:paddingLeft="14dp"
+            android:paddingRight="14dp"
             android:ellipsize="end"
             android:maxLines="1" />
     </LinearLayout>
@@ -245,8 +280,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:textColor="#666666"
-        android:textSize="11sp"
-        android:paddingBottom="4dp" />
+        android:textColor="#555555"
+        android:textSize="10sp"
+        android:paddingTop="6dp" />
 
 </LinearLayout>
+</ScrollView>

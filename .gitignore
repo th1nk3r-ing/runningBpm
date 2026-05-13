@@ -16,3 +16,4 @@ local.properties
 .cache/
 *.keystore
 *.jks
+cpp/gen_wav

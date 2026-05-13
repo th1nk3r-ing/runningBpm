@@ -18,22 +18,21 @@
 
 static AudioEngine gEngine;
 static AAudioStream* gStream = nullptr;
+static int32_t gStreamSampleRate = 48000;
+static int32_t gStreamChannels = 1;
 
 // ========== 采样生成 ==========
 
-/** 生成指数衰减脉冲作为默认 tick 采样（无人耳可闻的 click） */
-static std::vector<float> GenerateTickSample(int sampleRate) {
-    constexpr float kDurationSec = 0.03f;   // 30ms
-    constexpr float kFreqHz = 880.0f;
-    constexpr float kDecay = 80.0f;          // 衰减系数
-    int length = static_cast<int>(sampleRate * kDurationSec);
-    std::vector<float> data(length);
-    for (int i = 0; i < length; ++i) {
-        float t = static_cast<float>(i) / sampleRate;
-        data[i] = std::sin(2.0f * 3.14159265f * kFreqHz * t)
-                * std::exp(-t * kDecay);
-    }
-    return data;
+/**
+ * 生成默认木鱼采样（WAV 加载失败时的 fallback）。
+ * 使用 WavGenerator::MakeWoodTick 同时生成强拍和弱拍。
+ * @param sampleRate 必须与 AAudio 流实际采样率一致，否则 click 速率/音高会失真。
+ */
+static void GenerateDefaultTickSamples(std::vector<float>& outTickHi,
+                                        std::vector<float>& outTickLo,
+                                        int sampleRate) {
+    outTickHi = WavGenerator::MakeWoodTick(sampleRate, true);
+    outTickLo = WavGenerator::MakeWoodTick(sampleRate, false);
 }
 
 /** 线性插值 pitch shift — ratio < 1 降调（样本数增加），ratio > 1 升调 */
@@ -122,9 +121,29 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
 
 // ========== AAudio 回调 ==========
 
+// 复用的 mono 临时缓冲（音频线程独占；首帧分配后 capacity 足够即不再 realloc）
+static std::vector<float> gMonoBuf;
+
 static aaudio_data_callback_result_t dataCallback(
         AAudioStream* /*stream*/, void* /*userData*/, void* audioData, int32_t numFrames) {
-    gEngine.OnAudioCallback(static_cast<float*>(audioData), numFrames);
+    float* out = static_cast<float*>(audioData);
+
+    if (gStreamChannels <= 1) {
+        gEngine.OnAudioCallback(out, numFrames);
+    } else {
+        // 多通道（一般为 stereo）：先生成 mono，再交错写入每个通道
+        if (static_cast<int32_t>(gMonoBuf.size()) < numFrames) {
+            gMonoBuf.assign(static_cast<size_t>(numFrames), 0.0f);
+        }
+        gEngine.OnAudioCallback(gMonoBuf.data(), numFrames);
+        const int ch = gStreamChannels;
+        for (int i = 0; i < numFrames; ++i) {
+            float s = gMonoBuf[i];
+            for (int c = 0; c < ch; ++c) {
+                out[i * ch + c] = s;
+            }
+        }
+    }
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -151,6 +170,12 @@ static bool OpenStream() {
     // 基础配置
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    // 强烈建议固定 mono + 48kHz：
+    //   1) 我们的引擎按 mono per-sample 写出，必须保证设备 channel=1，否则
+    //      多通道的后半 buffer 会读到未初始化内存，产生明显噪音/失真；
+    //   2) 固定 48kHz 与样本生成一致，避免 AAudio 内部重采样和 click 音高/速度漂移。
+    AAudioStreamBuilder_setChannelCount(builder, 1);
+    AAudioStreamBuilder_setSampleRate(builder, 48000);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr);
 
@@ -171,13 +196,20 @@ static bool OpenStream() {
         return false;
     }
 
-    // 查询实际采样率并同步引擎
-    int32_t sampleRate = AAudioStream_getSampleRate(gStream);
-    gEngine.SetSampleRate(sampleRate);
-    LOGI("stream opened: %d Hz, %s mode",
-         sampleRate,
+    // 查询实际采样率/通道数并同步引擎
+    gStreamSampleRate = AAudioStream_getSampleRate(gStream);
+    gStreamChannels   = AAudioStream_getChannelCount(gStream);
+    gEngine.SetSampleRate(gStreamSampleRate);
+
+    // 让 AAudio 选择合适的 buffer 容量（默认通常 = 2 burst），降低 underrun
+    int32_t framesPerBurst = AAudioStream_getFramesPerBurst(gStream);
+    AAudioStream_setBufferSizeInFrames(gStream, framesPerBurst * 2);
+
+    LOGI("stream opened: %d Hz, %d ch, %s mode, burst=%d",
+         gStreamSampleRate, gStreamChannels,
          AAudioStream_getSharingMode(gStream) == AAUDIO_SHARING_MODE_EXCLUSIVE
-             ? "EXCLUSIVE" : "SHARED");
+             ? "EXCLUSIVE" : "SHARED",
+         framesPerBurst);
 
     return true;
 }
@@ -197,12 +229,15 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/) {
     LOGI("nativeInit");
 
-    // 生成默认 tick 采样
-    auto tickSamples = GenerateTickSample(48000);
-    gEngine.LoadTickSamples(tickSamples.data(), tickSamples.size());
-
-    // 打开 AAudio 流
+    // 先打开 AAudio 流，得到设备实际采样率，再按此采样率生成样本，
+    // 避免 click 速度/音高随设备 SR 漂移造成的"难听"。
     OpenStream();
+
+    std::vector<float> tickHi, tickLo;
+    GenerateDefaultTickSamples(tickHi, tickLo, gStreamSampleRate);
+    gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
+    gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
+
     if (gStream) {
         AAudioStream_requestStart(gStream);
     }

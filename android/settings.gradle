@@ -1,4 +1,13 @@
 pluginManagement {
+    def localProps = new Properties()
+    def localPropsFile = new File(rootDir, 'local.properties')
+    if (localPropsFile.exists()) {
+        localPropsFile.withInputStream { localProps.load(it) }
+        ['http.proxyHost', 'http.proxyPort', 'https.proxyHost', 'https.proxyPort'].each { key ->
+            def val = localProps.getProperty(key)
+            if (val) { System.setProperty(key, val) }
+        }
+    }
     repositories {
         maven { url = 'https://maven.aliyun.com/nexus/content/groups/public' }
         google()

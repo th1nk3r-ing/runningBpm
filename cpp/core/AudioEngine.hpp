@@ -142,7 +142,9 @@ public:
             out[i] = s;
         }
 
-        Limiter::Process(out, numFrames);
+        // 使用硬限幅（只在峰值 > 0.97 时介入），保持瞬态线性度。
+        // 之前的 tanh 软限幅在 |x|>0.3 时已开始压缩，会让 click 听起来"闷"。
+        Limiter::ProcessHard(out, numFrames);
     }
 
 private:
@@ -154,7 +156,9 @@ private:
     std::atomic<bool> loading_{false};
 
     std::atomic<double> bpm_{180.0};
-    std::atomic<double> tickGain_{0.8};
+    // 默认 tick 音量略降到 0.7：click 波形峰值约 0.55，乘 0.7 后峰值 ~0.39，
+    // 远低于硬限幅 0.97 阈值，可保持瞬态完全线性。
+    std::atomic<double> tickGain_{0.7};
     std::atomic<double> chimeGain_{0.5};
     std::atomic<bool> accentOn_{true};
 
