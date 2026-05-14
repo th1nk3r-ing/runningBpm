@@ -22,6 +22,15 @@
         android:gravity="center_vertical"
         android:layout_marginBottom="8dp">
 
+        <!-- 主题色选择圆点（最左侧，程序动态设置颜色） -->
+        <View
+            android:id="@+id/btnThemeColor"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginEnd="12dp"
+            android:clickable="true"
+            android:focusable="true" />
+
         <View
             android:id="@+id/viewStatusDot"
             android:layout_width="10dp"
@@ -295,6 +304,7 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tvTimbreArrow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="  ▾"

@@ -11,12 +11,14 @@ public class PreferencesManager {
     private static final String KEY_ACCENT = "accent";
     private static final String KEY_TIMBRE = "timbre";
     private static final String KEY_GAIN_LEVEL = "gain_level";
+    private static final String KEY_ACCENT_INDEX = "accent_index";
 
     private static final float DEFAULT_BPM = 180.0f;
     private static final int DEFAULT_TICK_VOLUME = 80;
     private static final boolean DEFAULT_ACCENT = true;
     private static final int DEFAULT_TIMBRE = 0;
     private static final int DEFAULT_GAIN_LEVEL = 1; // 1=x1, 2=x2, 3=x3
+    private static final int DEFAULT_ACCENT_INDEX = 0;
 
     private final SharedPreferences prefs;
 
@@ -65,5 +67,14 @@ public class PreferencesManager {
 
     public void setGainLevel(int level) {
         prefs.edit().putInt(KEY_GAIN_LEVEL, level).apply();
+    }
+
+    public int getAccentIndex() {
+        int v = prefs.getInt(KEY_ACCENT_INDEX, DEFAULT_ACCENT_INDEX);
+        return (v >= 0 && v < 5) ? v : DEFAULT_ACCENT_INDEX;
+    }
+
+    public void setAccentIndex(int index) {
+        prefs.edit().putInt(KEY_ACCENT_INDEX, index).apply();
     }
 }

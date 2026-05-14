@@ -25,15 +25,25 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.runbeat.audio.AudioEngine;
 
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+
 public class MainActivity extends AppCompatActivity {
 
     // ===== 控件 =====
+    private View btnThemeColor;
     private View viewStatusDot;
     private TextView tvStatus;
     private Button btnLock;
     private ProgressBar unlockProgress;
     private TextView tvTimer;
     private TextView tvBpm;
+    private TextView tvBpmLabel;
     private Button btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5;
     private Button btnStartPause;
     private SeekBar seekTickVolume;
@@ -41,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private Switch switchAccent;
     private View layoutTimbre;
     private TextView tvTimbreName;
+    private TextView tvTimbreArrow;
     private View layoutBpmControls, layoutParams;
     private TextView tvBuildInfo;
 
@@ -53,6 +64,17 @@ public class MainActivity extends AppCompatActivity {
     private int timbreIndex = 0;
     private int gainLevel = 1; // 1=x1, 2=x2, 3=x3
     private int tickVolumePercent = 80;
+    private int accentColorIndex = 0;
+
+    // ===== 主题色系 =====
+    private static final int[] ACCENT_COLORS = {
+        0xFFFF6B35, // 橙焰（默认）
+        0xFF00BCD4, // 青电
+        0xFF9C27B0, // 紫脉
+        0xFF4CAF50, // 绿野
+        0xFFE0E0E0, // 白月
+    };
+    private static final String[] ACCENT_NAMES = {"橙焰", "青电", "紫脉", "绿野", "白月"};
 
     // ===== 音色包 =====
     // 每行：{显示名, 强拍 wav, 弱拍 wav（null 表示单音色，与强拍相同）}
@@ -146,6 +168,10 @@ public class MainActivity extends AppCompatActivity {
         gainLevel = prefsManager.getGainLevel();
         applyGainLevel();
 
+        // 恢复主题色
+        accentColorIndex = prefsManager.getAccentIndex();
+        applyAccentColor(ACCENT_COLORS[accentColorIndex]);
+
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
     }
 
@@ -167,12 +193,14 @@ public class MainActivity extends AppCompatActivity {
     // ===== 视图绑定 =====
 
     private void bindViews() {
+        btnThemeColor = findViewById(R.id.btnThemeColor);
         viewStatusDot = findViewById(R.id.viewStatusDot);
         tvStatus = findViewById(R.id.tvStatus);
         btnLock = findViewById(R.id.btnLock);
         unlockProgress = findViewById(R.id.unlockProgress);
         tvTimer = findViewById(R.id.tvTimer);
         tvBpm = findViewById(R.id.tvBpm);
+        tvBpmLabel = findViewById(R.id.tvBpmLabel);
         btnBpmMinus5 = findViewById(R.id.btnBpmMinus5);
         btnBpmMinus1 = findViewById(R.id.btnBpmMinus1);
         btnBpmPlus1 = findViewById(R.id.btnBpmPlus1);
@@ -183,6 +211,7 @@ public class MainActivity extends AppCompatActivity {
         switchAccent = findViewById(R.id.switchAccent);
         layoutTimbre = findViewById(R.id.layoutTimbre);
         tvTimbreName = findViewById(R.id.tvTimbreName);
+        tvTimbreArrow = findViewById(R.id.tvTimbreArrow);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
         layoutParams = findViewById(R.id.layoutParams);
         tvBuildInfo = findViewById(R.id.tvBuildInfo);
@@ -229,6 +258,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         layoutTimbre.setOnClickListener(v -> showTimbreDialog());
+        btnThemeColor.setOnClickListener(v -> showThemeDialog());
 
         btnLock.setOnClickListener(v -> {
             if (!isLocked) {
@@ -519,6 +549,120 @@ public class MainActivity extends AppCompatActivity {
             viewStatusDot.setBackgroundResource(R.drawable.status_dot_active);
             btnStartPause.setText("PAUSE");
         }
+    }
+
+    // ===== 主题色 =====
+
+    private void showThemeDialog() {
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("主题色");
+        b.setSingleChoiceItems(
+            new BaseAdapter() {
+                @Override public int getCount() { return ACCENT_COLORS.length; }
+                @Override public Object getItem(int p) { return p; }
+                @Override public long getItemId(int p) { return p; }
+                @Override public View getView(int pos, View cv, ViewGroup parent) {
+                    LinearLayout row = new LinearLayout(MainActivity.this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setGravity(Gravity.CENTER_VERTICAL);
+                    row.setPadding(dpToPx(20), dpToPx(14), dpToPx(20), dpToPx(14));
+                    GradientDrawable d = new GradientDrawable();
+                    d.setShape(GradientDrawable.OVAL);
+                    d.setColor(ACCENT_COLORS[pos]);
+                    View circle = new View(MainActivity.this);
+                    int sz = dpToPx(20);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sz, sz);
+                    lp.setMarginEnd(dpToPx(16));
+                    circle.setLayoutParams(lp);
+                    circle.setBackground(d);
+                    row.addView(circle);
+                    TextView tv = new TextView(MainActivity.this);
+                    tv.setText(ACCENT_NAMES[pos]);
+                    tv.setTextColor(pos == accentColorIndex ? ACCENT_COLORS[pos] : 0xFFCCCCCC);
+                    tv.setTextSize(16);
+                    row.addView(tv);
+                    return row;
+                }
+            },
+            accentColorIndex,
+            (dialog, which) -> {
+                accentColorIndex = which;
+                applyAccentColor(ACCENT_COLORS[which]);
+                prefsManager.setAccentIndex(which);
+            }
+        );
+        b.setNegativeButton("取消", null);
+        b.show();
+    }
+
+    private void applyAccentColor(int color) {
+        // 主题色圆点
+        GradientDrawable circleBg = new GradientDrawable();
+        circleBg.setShape(GradientDrawable.OVAL);
+        circleBg.setColor(color);
+        btnThemeColor.setBackground(circleBg);
+        // BPM 微调按钮（深色背景 + 主题色边框 + 涟漪）
+        for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
+            btn.setBackground(makeBpmRippleBg(color));
+        }
+        // START/PAUSE 按钮（主题色实心）
+        btnStartPause.setBackground(makeStartPauseBg(color));
+        // 倍率按钮
+        btnGain.setBackground(makeBpmRippleBg(color));
+        btnGain.setTextColor(color);
+        // SeekBar
+        ColorStateList csl = ColorStateList.valueOf(color);
+        seekTickVolume.setThumbTintList(csl);
+        seekTickVolume.setProgressTintList(csl);
+        // 锁定进度圈（解锁动画的圆弧颜色）
+        unlockProgress.setProgressTintList(csl);
+        // Switch（选中态为主题色）
+        int[][] st = {{android.R.attr.state_checked}, {}};
+        switchAccent.setThumbTintList(new ColorStateList(st, new int[]{color, 0xFF888888}));
+        int trackOn = Color.argb(128, Color.red(color), Color.green(color), Color.blue(color));
+        switchAccent.setTrackTintList(new ColorStateList(st, new int[]{trackOn, 0xFF444444}));
+        // 音色行文字 + 外框（重建 ripple 背景以跟随主题色）
+        tvTimbreName.setTextColor(color);
+        tvTimbreArrow.setTextColor(color);
+        layoutTimbre.setBackground(makeTimbreRowBg(color));
+        // BPM 数字 + 标签
+        tvBpm.setTextColor(color);
+        tvBpmLabel.setTextColor(color);
+    }
+
+    private android.graphics.drawable.Drawable makeBpmRippleBg(int accent) {
+        GradientDrawable content = new GradientDrawable();
+        content.setShape(GradientDrawable.RECTANGLE);
+        content.setColor(0xFF2A2A2A);
+        content.setCornerRadius(dpToPx(8));
+        content.setStroke(dpToPx(1), accent);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setShape(GradientDrawable.RECTANGLE);
+        mask.setColor(0xFFFFFFFF);
+        mask.setCornerRadius(dpToPx(8));
+        return new RippleDrawable(ColorStateList.valueOf(accent), content, mask);
+    }
+
+    private android.graphics.drawable.Drawable makeStartPauseBg(int accent) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.RECTANGLE);
+        d.setColor(accent);
+        d.setCornerRadius(dpToPx(12));
+        return new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), d, null);
+    }
+
+    private android.graphics.drawable.Drawable makeTimbreRowBg(int accent) {
+        GradientDrawable content = new GradientDrawable();
+        content.setShape(GradientDrawable.RECTANGLE);
+        content.setColor(0xFF1E1E1E);
+        content.setCornerRadius(dpToPx(10));
+        content.setStroke(dpToPx(1), accent);
+        int ripple = Color.argb(68, Color.red(accent), Color.green(accent), Color.blue(accent));
+        return new RippleDrawable(ColorStateList.valueOf(ripple), content, null);
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
     private void updateLockState() {
