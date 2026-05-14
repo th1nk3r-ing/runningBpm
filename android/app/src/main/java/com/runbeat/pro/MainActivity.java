@@ -72,6 +72,8 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
+            // 检测 AAudio 流断开（耳机拔出/蓝牙切换），若断开则重建流
+            AudioEngine.nativeRebuildStreamIfNeeded();
             if (isRunning && !isPaused) {
                 timerHandler.postDelayed(this, 1000);
             }

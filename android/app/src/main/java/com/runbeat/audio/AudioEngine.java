@@ -68,4 +68,7 @@ public class AudioEngine {
 
     /** 获取 AAudio XRun 计数 */
     public static native int nativeGetXRunCount();
+
+    /** 检查 AAudio 流是否因设备断开而死亡，如是则重建。由主线程定时调用。*/
+    public static native boolean nativeRebuildStreamIfNeeded();
 }

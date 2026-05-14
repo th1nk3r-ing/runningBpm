@@ -104,17 +104,20 @@ public:
 
     // ===== 音频回调（实时线程，严禁阻塞/分配） =====
 
-    /** 运行时替换 tick 样本（线程安全，需先设置 loading 标志） */
+    /**
+     * 运行时替换 tick 样本（控制线程调用）。
+     * 使用 seq_cst 保证：音频线程若看到 loading_=false，必定也看到完整的新样本数据。
+     */
     void LoadSoundPack(const float* tickHi, size_t tickHiLen,
                         const float* tickLo, size_t tickLoLen) noexcept {
-        loading_.store(true, std::memory_order_relaxed);
-        tickPlayer_.Load(tickHi, tickHiLen);
+        loading_.store(true, std::memory_order_seq_cst);   // ① 先设标志（seq_cst 全屏障）
+        tickPlayer_.Load(tickHi, tickHiLen);                // ② 写新样本
         tickLoPlayer_.Load(tickLo, tickLoLen);
-        loading_.store(false, std::memory_order_relaxed);
+        loading_.store(false, std::memory_order_seq_cst);  // ③ 清除标志（seq_cst 全屏障）
     }
 
     void OnAudioCallback(float* out, int numFrames) noexcept {
-        if (loading_.load(std::memory_order_relaxed)) {
+        if (loading_.load(std::memory_order_seq_cst)) {    // seq_cst 确保看到最新值
             for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
             return;
         }

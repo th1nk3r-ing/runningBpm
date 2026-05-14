@@ -3,6 +3,7 @@
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <aaudio/AAudio.h>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -20,6 +21,9 @@ static AudioEngine gEngine;
 static AAudioStream* gStream = nullptr;
 static int32_t gStreamSampleRate = 48000;
 static int32_t gStreamChannels = 1;
+
+// 流断开标志：errorCallback（音频线程）写入，主线程检查并重建
+static std::atomic<bool> gStreamError{false};
 
 // ========== 采样生成 ==========
 
@@ -129,8 +133,10 @@ static aaudio_data_callback_result_t dataCallback(
 static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_result_t error) {
     LOGI("stream error: %d", error);
     if (error == AAUDIO_ERROR_DISCONNECTED) {
-        // Phase 3 实现：自动重建流
-        LOGI("stream disconnected — will rebuild on next start");
+        // 不可在此回调内调用任何 AAudio API，只设标志位
+        // 主线程通过 nativeRebuildStreamIfNeeded 轮询并重建
+        gStreamError.store(true, std::memory_order_relaxed);
+        LOGI("stream disconnected — flagged for rebuild");
     }
 }
 
@@ -199,6 +205,32 @@ static void CloseStream() {
         AAudioStream_close(gStream);
         gStream = nullptr;
         LOGI("stream closed");
+    }
+}
+
+/**
+ * 重建 AAudio 流并按当前引擎状态决定是否立即启动。
+ * 必须在非音频线程调用（主线程 / JNI 线程均可）。
+ */
+static void RebuildStream() {
+    LOGI("RebuildStream: closing dead stream");
+    CloseStream();                 // 关闭旧流（已断开，stop/close 会快速返回）
+
+    if (!OpenStream()) {           // 重新打开
+        LOGE("RebuildStream: OpenStream failed");
+        return;
+    }
+
+    // 仅当引擎处于 Running 时才重新启动流
+    if (gEngine.GetState() == AudioEngine::State::Running) {
+        aaudio_result_t result = AAudioStream_requestStart(gStream);
+        if (result == AAUDIO_OK) {
+            LOGI("RebuildStream: stream restarted");
+        } else {
+            LOGE("RebuildStream: requestStart failed: %d", result);
+        }
+    } else {
+        LOGI("RebuildStream: engine not running, stream opened but not started");
     }
 }
 
@@ -345,6 +377,25 @@ Java_com_runbeat_audio_AudioEngine_nativeGetXRunCount(JNIEnv* /*env*/, jclass /*
         return static_cast<jint>(AAudioStream_getXRunCount(gStream));
     }
     return -1;
+}
+
+// ========== JNI — 流健康检查（由主线程定期调用） ==========
+
+/**
+ * 检查并重建断开的 AAudio 流。
+ * 在 Java 层 1 秒定时器中调用，保证在主线程执行。
+ * 返回 true 表示流被重建过。
+ */
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeeded(
+        JNIEnv* /*env*/, jclass /*clazz*/) {
+    if (!gStreamError.load(std::memory_order_relaxed)) {
+        return JNI_FALSE;
+    }
+    gStreamError.store(false, std::memory_order_relaxed);
+    LOGI("nativeRebuildStreamIfNeeded: rebuilding");
+    RebuildStream();
+    return JNI_TRUE;
 }
 
 // ========== JNI — 清理 ==========
