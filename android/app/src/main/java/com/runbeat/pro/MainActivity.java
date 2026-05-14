@@ -379,8 +379,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void adjustBpm(int delta) {
         double newBpm = bpm + delta;
-        if (newBpm < 150.0) newBpm = 150.0;
-        if (newBpm > 190.0) newBpm = 190.0;
+        if (newBpm < 120.0) newBpm = 120.0;
+        if (newBpm > 220.0) newBpm = 220.0;
         if (newBpm != bpm) {
             bpm = newBpm;
             AudioEngine.nativeSetBpm(bpm);
