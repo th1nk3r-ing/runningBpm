@@ -13,6 +13,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.Switch;
@@ -35,10 +36,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvBpm;
     private Button btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5;
     private Button btnStartPause;
-    private SeekBar sbTickVolume;
-    private Button btnGain;
+    private SeekBar seekTickVolume;
+    private TextView btnGain;
     private Switch switchAccent;
-    private Button btnTimbre;
+    private View layoutTimbre;
+    private TextView tvTimbreName;
     private View layoutBpmControls, layoutParams;
     private TextView tvBuildInfo;
 
@@ -50,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isLocked = false;
     private int timbreIndex = 0;
     private int gainLevel = 1; // 1=x1, 2=x2, 3=x3
+    private int tickVolumePercent = 80;
 
     // ===== 音色包 =====
     // 每行：{显示名, 强拍 wav, 弱拍 wav（null 表示单音色，与强拍相同）}
@@ -120,15 +123,16 @@ public class MainActivity extends AppCompatActivity {
             isPaused = savedInstanceState.getBoolean("paused", false);
         }
 
+        tickVolumePercent = savedVolume;
         updateUI();
 
         // 恢复 UI 控件状态（需要在 updateUI 之后，避免被覆盖）
-        sbTickVolume.setProgress(savedVolume);
+        seekTickVolume.setProgress(tickVolumePercent);
         switchAccent.setChecked(savedAccent);
 
         // 同步 Native 引擎（即使未启动，确保参数就绪）
         AudioEngine.nativeSetBpm(bpm);
-        AudioEngine.nativeSetTickVolume(savedVolume / 100.0f);
+        AudioEngine.nativeSetTickVolume(tickVolumePercent / 100.0f);
 
         // 恢复音色
         timbreIndex = prefsManager.getTimbre();
@@ -172,10 +176,11 @@ public class MainActivity extends AppCompatActivity {
         btnBpmPlus1 = findViewById(R.id.btnBpmPlus1);
         btnBpmPlus5 = findViewById(R.id.btnBpmPlus5);
         btnStartPause = findViewById(R.id.btnStartPause);
-        sbTickVolume = findViewById(R.id.sbTickVolume);
+        seekTickVolume = findViewById(R.id.seekTickVolume);
         btnGain = findViewById(R.id.btnGain);
         switchAccent = findViewById(R.id.switchAccent);
-        btnTimbre = findViewById(R.id.btnTimbre);
+        layoutTimbre = findViewById(R.id.layoutTimbre);
+        tvTimbreName = findViewById(R.id.tvTimbreName);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
         layoutParams = findViewById(R.id.layoutParams);
         tvBuildInfo = findViewById(R.id.tvBuildInfo);
@@ -194,17 +199,20 @@ public class MainActivity extends AppCompatActivity {
 
         btnStartPause.setOnClickListener(v -> toggleStartPause());
 
-        sbTickVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        seekTickVolume.setProgress(tickVolumePercent);
+        seekTickVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (fromUser) {
-                    float vol = progress / 100.0f;
-                    AudioEngine.nativeSetTickVolume(vol);
-                    prefsManager.setTickVolume(progress);
+                    tickVolumePercent = progress;
+                    AudioEngine.nativeSetTickVolume(tickVolumePercent / 100.0);
+                    prefsManager.setTickVolume(tickVolumePercent);
                 }
             }
-            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
-            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStartTrackingTouch(SeekBar sb) {
+                sb.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            }
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
         switchAccent.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -218,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
             prefsManager.setGainLevel(gainLevel);
         });
 
-        btnTimbre.setOnClickListener(v -> showTimbreDialog());
+        layoutTimbre.setOnClickListener(v -> showTimbreDialog());
 
         btnLock.setOnClickListener(v -> {
             if (!isLocked) {
@@ -277,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
         String hiPath = SOUND_PACKS[index][1];
         String loPath = SOUND_PACKS[index][2];
         AudioEngine.nativeLoadSoundPack(getAssets(), hiPath, loPath);
-        btnTimbre.setText(name);
+        tvTimbreName.setText(name);
         prefsManager.setTimbre(index);
     }
 
@@ -520,9 +528,12 @@ public class MainActivity extends AppCompatActivity {
         }) {
             findViewById(id).setEnabled(enabled);
         }
-        sbTickVolume.setEnabled(enabled);
+        seekTickVolume.setEnabled(enabled);
+        seekTickVolume.setAlpha(enabled ? 1.0f : 0.4f);
         btnGain.setEnabled(enabled);
+        btnGain.setAlpha(enabled ? 1.0f : 0.4f);
         switchAccent.setEnabled(enabled);
-        btnTimbre.setEnabled(enabled);
+        layoutTimbre.setEnabled(enabled);
+        layoutTimbre.setAlpha(enabled ? 1.0f : 0.4f);
     }
 }
