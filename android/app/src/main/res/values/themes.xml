@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.RunBeatPro" parent="Theme.Material3.Dark">
+    <style name="Theme.RunBeatPro" parent="Theme.AppCompat.NoActionBar">
         <item name="colorPrimary">#FF6B35</item>
-        <item name="colorPrimaryVariant">#CC5520</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">#FF6B35</item>
     </style>

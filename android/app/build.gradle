@@ -14,6 +14,7 @@ android {
     namespace 'com.runbeat.pro'
     compileSdk 34
     buildFeatures { buildConfig true }
+    lint { checkReleaseBuilds = false }
 
     defaultConfig {
         applicationId "com.runbeat.pro"
@@ -23,11 +24,15 @@ android {
         versionName "1.0"
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm:ss')}\""
         buildConfigField "String", "GIT_COMMIT", "\"${getGitCommit()}\""
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
         }
@@ -54,6 +59,13 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    constraints {
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22') {
+            because 'Force Kotlin stdlib version to avoid duplicates'
+        }
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22') {
+            because 'Force Kotlin stdlib version to avoid duplicates'
+        }
+    }
 }
