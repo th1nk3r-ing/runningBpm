@@ -28,10 +28,36 @@ public:
         UpdateFramesPerTick();
     }
 
-    /** 设置 BPM，更新每 tick 帧数 */
+    /**
+     * 设置 BPM 并重置相位（framesToNextTick_ = framesPerTick_）。
+     * 用于初始化 / Stop 后重启等"对齐到第一拍"的场景。
+     * 运行中调整 BPM 请用 SetBPMPreservePhase，否则会让下一拍提前/推迟。
+     */
     void SetBPM(double bpm) noexcept {
         bpm_ = bpm;
         UpdateFramesPerTick();
+        framesToNextTick_ = framesPerTick_;
+    }
+
+    /**
+     * 设置 BPM 但保持当前相位百分比连续 — 运行中调整 BPM 必用此函数。
+     * 思路：当前 countdown 在旧 framesPerTick 中的"已走百分比"在新 framesPerTick
+     * 中保持不变，避免因重置 countdown 导致的"提前一拍"听感。
+     *
+     * 例：旧 fpt=24000、当前 framesToNextTick=6000（已走 75%）→ 新 fpt=20000
+     *     则新 framesToNextTick = 20000 * (6000/24000) = 5000（仍为 75%）
+     */
+    void SetBPMPreservePhase(double bpm) noexcept {
+        if (bpm <= 0.0 || sampleRate_ <= 0) return;
+        double oldFpt = framesPerTick_;
+        bpm_ = bpm;
+        framesPerTick_ = static_cast<double>(sampleRate_) * 60.0 / bpm_;
+        if (oldFpt > 0.0) {
+            // 保持"剩余比例"不变
+            framesToNextTick_ = framesPerTick_ * (framesToNextTick_ / oldFpt);
+        } else {
+            framesToNextTick_ = framesPerTick_;
+        }
     }
 
     /** 获取当前 BPM */

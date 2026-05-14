@@ -33,6 +33,9 @@ public:
 
     void Start(double bpm) noexcept {
         bpm_.store(bpm, std::memory_order_relaxed);
+        // 显式同步 Clock BPM 并重置相位，确保第一拍按新 BPM 触发，
+        // 避免"上次 Stop 时残留的 framesPerTick(旧 BPM)"让首拍提前/推迟。
+        clock_.SetBPM(bpm);
         state_.store(State::Running, std::memory_order_relaxed);
     }
 
@@ -129,7 +132,9 @@ public:
         // 一次性加载参数（relaxed 足够，单生产者单消费者）
         double bpm = bpm_.load(std::memory_order_relaxed);
         if (std::abs(bpm - clock_.GetBPM()) > 1e-9) {
-            clock_.SetBPM(bpm);
+            // 运行中调整 BPM：保持当前相位百分比连续，避免拍子提前/推迟。
+            // Start() 时已经显式 SetBPM 重置相位，这里只处理"运行中"的微调。
+            clock_.SetBPMPreservePhase(bpm);
         }
         float outGain = static_cast<float>(outputGain_.load(std::memory_order_relaxed));
         float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed)) * outGain;
