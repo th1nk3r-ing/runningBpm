@@ -216,6 +216,19 @@
             android:thumbTint="@color/colorPrimary"
             android:progressTint="@color/colorPrimary"
             android:progressBackgroundTint="#444444" />
+
+        <Button
+            android:id="@+id/btnGain"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:minWidth="56dp"
+            android:layout_marginStart="8dp"
+            android:text="x1"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:background="@drawable/btn_bpm_control"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp" />
     </LinearLayout>
 
     <!-- 参数区：Accent -->

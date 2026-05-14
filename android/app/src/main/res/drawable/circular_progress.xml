@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+环形进度条尺寸约束：
+  容器 FrameLayout = 64dp × 64dp
+  ring 外径 = innerRadius + thickness × 2
+  当前：innerRadius=24dp, thickness=3dp → 外径 30dp，直径 60dp，留 2dp 边距，不会被容器裁切。
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape android:shape="ring"
-            android:innerRadius="36dp"
-            android:thickness="4.5dp"
+            android:innerRadius="24dp"
+            android:thickness="3dp"
             android:useLevel="false">
             <solid android:color="#333333" />
         </shape>
@@ -11,8 +17,8 @@
     <item android:id="@android:id/progress">
         <rotate android:fromDegrees="-90" android:toDegrees="270">
             <shape android:shape="ring"
-                android:innerRadius="36dp"
-                android:thickness="4.5dp"
+                android:innerRadius="24dp"
+                android:thickness="3dp"
                 android:useLevel="true">
                 <solid android:color="@color/colorPrimary" />
             </shape>

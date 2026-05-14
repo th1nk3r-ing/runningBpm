@@ -47,12 +47,18 @@ public class AudioEngine {
 
     public static native void nativeSetAccent(boolean on);
 
+    /** 设置输出总倍率（x1 = 1.0, x2 = 2.0, x3 = 3.0），叠加在 tick/chime gain 之上 */
+    public static native void nativeSetOutputGain(double gain);
+
     // ========== 音色切换 ==========
 
-    /** 运行时替换 tick 样本（从 Assets 加载 + pitch shift 生成弱拍） */
+    /**
+     * 运行时替换 tick 样本（从 Assets 加载强拍 + 弱拍 WAV）。
+     * tickLoPath 可为 null 或空串，则两路使用同一个强拍样本（单音色音色包）。
+     */
     public static native void nativeLoadSoundPack(
             android.content.res.AssetManager mgr,
-            String tickHiPath, double pitchRatio);
+            String tickHiPath, String tickLoPath);
 
     // ========== 事件触发 ==========
 

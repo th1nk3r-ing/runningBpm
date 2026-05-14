@@ -70,6 +70,11 @@ public:
         accentOn_.store(on, std::memory_order_relaxed);
     }
 
+    /** 输出总增益倍率（x1/x2/x3） — 经 Limiter 后再放大并 clamp，避免硬削波 */
+    void SetOutputGain(double gain) noexcept {
+        outputGain_.store(gain, std::memory_order_relaxed);
+    }
+
     /** 同步 AAudio 实际采样率到 Clock */
     void SetSampleRate(int sr) noexcept {
         clock_.SetSampleRate(sr);
@@ -123,11 +128,14 @@ public:
         if (std::abs(bpm - clock_.GetBPM()) > 1e-9) {
             clock_.SetBPM(bpm);
         }
-        float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed));
-        float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed));
+        float outGain = static_cast<float>(outputGain_.load(std::memory_order_relaxed));
+        float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed)) * outGain;
+        float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed)) * outGain;
         bool accent = accentOn_.load(std::memory_order_relaxed);
 
-        // Per-sample 处理
+        // Per-sample 处理：始终推进所有 player（让长尾自然播放完），
+        // 仅在 tick 触发时启动对应的 player。
+        // 注意：accent 关闭时，所有 tick 触发都使用 tickLoPlayer_（弱拍/单一音色）。
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
                 if (accent) {
@@ -136,10 +144,9 @@ public:
                     tickLoPlayer_.Play();
                 }
             }
-
-            float s = (accent ? tickPlayer_ : tickLoPlayer_).ReadOne() * tickGain
-                    + chimePlayer_.ReadOne() * chimeGain;
-            out[i] = s;
+            float tickSample = tickPlayer_.ReadOne() + tickLoPlayer_.ReadOne();
+            float chimeSample = chimePlayer_.ReadOne();
+            out[i] = tickSample * tickGain + chimeSample * chimeGain;
         }
 
         // 使用硬限幅（只在峰值 > 0.97 时介入），保持瞬态线性度。
@@ -161,6 +168,8 @@ private:
     std::atomic<double> tickGain_{0.7};
     std::atomic<double> chimeGain_{0.5};
     std::atomic<bool> accentOn_{true};
+    // 输出总倍率（x1/x2/x3 等），叠加在 tickGain/chimeGain 之上
+    std::atomic<double> outputGain_{1.0};
 
     std::atomic<State> state_{State::Idle};
 };

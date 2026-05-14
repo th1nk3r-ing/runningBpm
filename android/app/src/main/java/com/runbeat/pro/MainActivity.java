@@ -19,6 +19,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.runbeat.audio.AudioEngine;
@@ -35,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5;
     private Button btnStartPause;
     private SeekBar sbTickVolume;
+    private Button btnGain;
     private Switch switchAccent;
     private Button btnTimbre;
     private View layoutBpmControls, layoutParams;
@@ -47,10 +49,17 @@ public class MainActivity extends AppCompatActivity {
     private int elapsedSeconds = 0;
     private boolean isLocked = false;
     private int timbreIndex = 0;
+    private int gainLevel = 1; // 1=x1, 2=x2, 3=x3
 
     // ===== 音色包 =====
-    private static final Object[][] SOUND_PACKS = {
-        {"默认", "sounds/default/tick_hi.wav", 0.68},
+    // 每行：{显示名, 强拍 wav, 弱拍 wav（null 表示单音色，与强拍相同）}
+    private static final String[][] SOUND_PACKS = {
+        {"默认",     "sounds/default/tick_hi.wav",       "sounds/default/tick_lo.wav"},
+        {"底鼓",     "sounds/audios/BassDrum1.wav",      "sounds/audios/BassDrum2.wav"},
+        {"拍手",     "sounds/audios/Clap1.wav",          "sounds/audios/Clap2.wav"},
+        {"响棒",     "sounds/audios/Claves1.wav",        "sounds/audios/Claves2.wav"},
+        {"边击",     "sounds/audios/Rimshot1.wav",       "sounds/audios/Rimshot2.wav"},
+        {"强弱拍",   "sounds/audios/downbeat.wav",       "sounds/audios/upbeat.wav"},
     };
 
     // ===== 计时器 =====
@@ -127,6 +136,10 @@ public class MainActivity extends AppCompatActivity {
             loadTimbre(timbreIndex);
         }
 
+        // 恢复输出倍率
+        gainLevel = prefsManager.getGainLevel();
+        applyGainLevel();
+
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
     }
 
@@ -160,6 +173,7 @@ public class MainActivity extends AppCompatActivity {
         btnBpmPlus5 = findViewById(R.id.btnBpmPlus5);
         btnStartPause = findViewById(R.id.btnStartPause);
         sbTickVolume = findViewById(R.id.sbTickVolume);
+        btnGain = findViewById(R.id.btnGain);
         switchAccent = findViewById(R.id.switchAccent);
         btnTimbre = findViewById(R.id.btnTimbre);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
@@ -198,10 +212,13 @@ public class MainActivity extends AppCompatActivity {
             prefsManager.setAccentEnabled(isChecked);
         });
 
-        btnTimbre.setOnClickListener(v -> {
-            int next = (timbreIndex + 1) % SOUND_PACKS.length;
-            loadTimbre(next);
+        btnGain.setOnClickListener(v -> {
+            gainLevel = gainLevel % 3 + 1; // 1 → 2 → 3 → 1
+            applyGainLevel();
+            prefsManager.setGainLevel(gainLevel);
         });
+
+        btnTimbre.setOnClickListener(v -> showTimbreDialog());
 
         btnLock.setOnClickListener(v -> {
             if (!isLocked) {
@@ -227,15 +244,39 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // ===== 输出倍率 =====
+
+    private void applyGainLevel() {
+        if (gainLevel < 1) gainLevel = 1;
+        if (gainLevel > 3) gainLevel = 3;
+        AudioEngine.nativeSetOutputGain((double) gainLevel);
+        btnGain.setText("x" + gainLevel);
+    }
+
     // ===== 音色切换 =====
+
+    private void showTimbreDialog() {
+        String[] names = new String[SOUND_PACKS.length];
+        for (int i = 0; i < SOUND_PACKS.length; i++) {
+            names[i] = SOUND_PACKS[i][0];
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择音色")
+                .setSingleChoiceItems(names, timbreIndex, (dialog, which) -> {
+                    loadTimbre(which);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
     private void loadTimbre(int index) {
         if (index < 0 || index >= SOUND_PACKS.length) return;
         timbreIndex = index;
-        String name = (String) SOUND_PACKS[index][0];
-        String path = (String) SOUND_PACKS[index][1];
-        double ratio = (Double) SOUND_PACKS[index][2];
-        AudioEngine.nativeLoadSoundPack(getAssets(), path, ratio);
+        String name = SOUND_PACKS[index][0];
+        String hiPath = SOUND_PACKS[index][1];
+        String loPath = SOUND_PACKS[index][2];
+        AudioEngine.nativeLoadSoundPack(getAssets(), hiPath, loPath);
         btnTimbre.setText(name);
         prefsManager.setTimbre(index);
     }
@@ -480,6 +521,7 @@ public class MainActivity extends AppCompatActivity {
             findViewById(id).setEnabled(enabled);
         }
         sbTickVolume.setEnabled(enabled);
+        btnGain.setEnabled(enabled);
         switchAccent.setEnabled(enabled);
         btnTimbre.setEnabled(enabled);
     }

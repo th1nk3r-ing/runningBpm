@@ -35,27 +35,6 @@ static void GenerateDefaultTickSamples(std::vector<float>& outTickHi,
     outTickLo = WavGenerator::MakeWoodTick(sampleRate, false);
 }
 
-/** 线性插值 pitch shift — ratio < 1 降调（样本数增加），ratio > 1 升调 */
-static std::vector<float> PitchShift(const float* input, size_t inputLen, double ratio) {
-    if (ratio <= 0.0 || std::abs(ratio - 1.0) < 1e-9) {
-        return std::vector<float>(input, input + inputLen);
-    }
-    size_t outLen = static_cast<size_t>(inputLen / ratio);
-    std::vector<float> output(outLen);
-    for (size_t i = 0; i < outLen; ++i) {
-        double srcPos = i * ratio;
-        size_t idx = static_cast<size_t>(srcPos);
-        double frac = srcPos - idx;
-        if (idx + 1 < inputLen) {
-            output[i] = static_cast<float>(
-                input[idx] * (1.0 - frac) + input[idx + 1] * frac);
-        } else {
-            output[i] = input[idx];
-        }
-    }
-    return output;
-}
-
 // ========== WAV 资源加载 ==========
 
 /** 从 Android Assets 加载 WAV 文件 */
@@ -300,29 +279,56 @@ Java_com_runbeat_audio_AudioEngine_nativeSetAccent(JNIEnv * /*env*/, jclass /*cl
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass /*clazz*/, jdouble gain) {
+    LOGI("nativeSetOutputGain(%.2f)", gain);
+    gEngine.SetOutputGain(static_cast<double>(gain));
+}
+
+/**
+ * 加载成对音色（强拍 + 弱拍）。
+ * 替代旧的 pitch-shift 派生方案：直接使用两个独立的 WAV 资源，
+ * 保留各自的瞬态特征，适用于打击乐采样（BassDrum1/2、Clap1/2 等）。
+ *
+ * 若 tickLoPath 为空（null/空串），则两路都使用 tickHiPath（单音色）。
+ */
+extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
         JNIEnv* env, jclass /*clazz*/,
         jobject assetManagerObj,
-        jstring tickHiPath, jdouble pitchRatio) {
+        jstring tickHiPath, jstring tickLoPath) {
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
     if (!mgr) return;
 
-    const char* cPath = env->GetStringUTFChars(tickHiPath, nullptr);
-    LOGI("nativeLoadSoundPack: %s (ratio=%.2f)", cPath, static_cast<double>(pitchRatio));
+    const char* cHi = env->GetStringUTFChars(tickHiPath, nullptr);
+    LOGI("nativeLoadSoundPack: hi=%s", cHi);
 
-    std::vector<float> samples;
-    bool ok = LoadWavFromAsset(mgr, cPath, samples, 48000);
-    env->ReleaseStringUTFChars(tickHiPath, cPath);
+    std::vector<float> hiSamples;
+    bool hiOk = LoadWavFromAsset(mgr, cHi, hiSamples, 48000);
+    env->ReleaseStringUTFChars(tickHiPath, cHi);
 
-    if (!ok || samples.empty()) {
-        LOGE("nativeLoadSoundPack: failed to load %s", cPath);
+    if (!hiOk || hiSamples.empty()) {
+        LOGE("nativeLoadSoundPack: failed to load tickHi");
         return;
     }
 
-    auto tickLo = PitchShift(samples.data(), samples.size(),
-                             static_cast<double>(pitchRatio));
-    gEngine.LoadSoundPack(samples.data(), samples.size(),
-                          tickLo.data(), tickLo.size());
+    std::vector<float> loSamples;
+    bool loOk = false;
+    if (tickLoPath != nullptr) {
+        const char* cLo = env->GetStringUTFChars(tickLoPath, nullptr);
+        if (cLo && cLo[0] != '\0') {
+            LOGI("nativeLoadSoundPack: lo=%s", cLo);
+            loOk = LoadWavFromAsset(mgr, cLo, loSamples, 48000);
+        }
+        env->ReleaseStringUTFChars(tickLoPath, cLo);
+    }
+
+    if (!loOk || loSamples.empty()) {
+        // 弱拍样本缺失或加载失败：复用强拍（单音色音色包）
+        loSamples = hiSamples;
+    }
+
+    gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
+                          loSamples.data(), loSamples.size());
 }
 
 extern "C" JNIEXPORT void JNICALL
