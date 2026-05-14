@@ -492,14 +492,14 @@ public class MainActivity extends AppCompatActivity {
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
-            AudioEngine.nativeStart(bpm);
-            timerHandler.post(timerRunnable);
+AudioEngine.nativeStart(bpm);
+            timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else if (isPaused) {
             // RESUME
             isPaused = false;
             AudioEngine.nativeResume();
-            timerHandler.post(timerRunnable);
+            timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else {
             // PAUSE
@@ -528,7 +528,7 @@ public class MainActivity extends AppCompatActivity {
         isPaused = false;
         AudioEngine.nativeStart(bpm);
         timerHandler.removeCallbacks(timerRunnable);
-        timerHandler.post(timerRunnable);
+        timerHandler.postDelayed(timerRunnable, 1000);
         updateUI();
         scheduleAutoLock();
     }
