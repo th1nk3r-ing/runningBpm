@@ -39,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
     private View btnThemeColor;
     private View viewStatusDot;
     private TextView tvStatus;
+    private TextView btnRestart;
     private Button btnLock;
     private ProgressBar unlockProgress;
     private TextView tvTimer;
@@ -196,6 +197,7 @@ public class MainActivity extends AppCompatActivity {
         btnThemeColor = findViewById(R.id.btnThemeColor);
         viewStatusDot = findViewById(R.id.viewStatusDot);
         tvStatus = findViewById(R.id.tvStatus);
+        btnRestart = findViewById(R.id.btnRestart);
         btnLock = findViewById(R.id.btnLock);
         unlockProgress = findViewById(R.id.unlockProgress);
         tvTimer = findViewById(R.id.tvTimer);
@@ -282,6 +284,8 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
+
+        btnRestart.setOnClickListener(v -> restartMetronome());
     }
 
     // ===== 输出倍率 =====
@@ -515,6 +519,20 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ===== RESTART =====
+
+    private void restartMetronome() {
+        AudioEngine.nativeStop();
+        elapsedSeconds = 0;
+        isRunning = true;
+        isPaused = false;
+        AudioEngine.nativeStart(bpm);
+        timerHandler.removeCallbacks(timerRunnable);
+        timerHandler.post(timerRunnable);
+        updateUI();
+        scheduleAutoLock();
+    }
+
     // ===== UI 刷新 =====
 
     private void updateUI() {
@@ -549,6 +567,7 @@ public class MainActivity extends AppCompatActivity {
             viewStatusDot.setBackgroundResource(R.drawable.status_dot_active);
             btnStartPause.setText("PAUSE");
         }
+        btnRestart.setVisibility(isRunning ? View.VISIBLE : View.GONE);
     }
 
     // ===== 主题色 =====
@@ -589,6 +608,7 @@ public class MainActivity extends AppCompatActivity {
                 accentColorIndex = which;
                 applyAccentColor(ACCENT_COLORS[which]);
                 prefsManager.setAccentIndex(which);
+                dialog.dismiss();
             }
         );
         b.setNegativeButton("取消", null);
@@ -628,6 +648,9 @@ public class MainActivity extends AppCompatActivity {
         // BPM 数字 + 标签
         tvBpm.setTextColor(color);
         tvBpmLabel.setTextColor(color);
+        // RESTART 按钮
+        btnRestart.setBackground(makeBpmRippleBg(color));
+        btnRestart.setTextColor(color);
     }
 
     private android.graphics.drawable.Drawable makeBpmRippleBg(int accent) {
@@ -668,11 +691,11 @@ public class MainActivity extends AppCompatActivity {
     private void updateLockState() {
         boolean enabled = !isLocked;
         btnLock.setText(isLocked ? "🔒" : "🔓");
-        for (int id : new int[]{
-                R.id.btnBpmMinus5, R.id.btnBpmMinus1,
-                R.id.btnBpmPlus1, R.id.btnBpmPlus5,
-        }) {
-            findViewById(id).setEnabled(enabled);
+        int accent = ACCENT_COLORS[accentColorIndex];
+        int borderColor = isLocked ? Color.argb(102, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent;
+        for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
+            btn.setEnabled(enabled);
+            btn.setBackground(makeBpmRippleBg(borderColor));
         }
         seekTickVolume.setEnabled(enabled);
         seekTickVolume.setAlpha(enabled ? 1.0f : 0.4f);
