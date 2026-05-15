@@ -362,7 +362,7 @@
             android:id="@+id/tvTimbreName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="默认"
+            android:text=""
             android:textColor="@color/accent"
             android:textSize="14sp"
             android:textStyle="bold" />

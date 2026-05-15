@@ -91,14 +91,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] ACCENT_NAMES_EN = {"Flame", "Cyan", "Purple", "Green", "White"};
 
     // ===== 音色包 =====
-    // 每行：{显示名, 强拍 wav, 弱拍 wav（null 表示单音色，与强拍相同）}
+    // 每行：{强拍 wav, 弱拍 wav}
     private static final String[][] SOUND_PACKS = {
-        {"默认",     "sounds/default/tick_hi.wav",       "sounds/default/tick_lo.wav"},
-        {"底鼓",     "sounds/audios/BassDrum1.wav",      "sounds/audios/BassDrum2.wav"},
-        {"拍手",     "sounds/audios/Clap1.wav",          "sounds/audios/Clap2.wav"},
-        {"响棒",     "sounds/audios/Claves1.wav",        "sounds/audios/Claves2.wav"},
-        {"边击",     "sounds/audios/Rimshot1.wav",       "sounds/audios/Rimshot2.wav"},
-        {"强弱拍",   "sounds/audios/downbeat.wav",       "sounds/audios/upbeat.wav"},
+        {"sounds/default/tick_hi.wav",       "sounds/default/tick_lo.wav"},
+        {"sounds/audios/BassDrum1.wav",      "sounds/audios/BassDrum2.wav"},
+        {"sounds/audios/Clap1.wav",          "sounds/audios/Clap2.wav"},
+        {"sounds/audios/Claves1.wav",        "sounds/audios/Claves2.wav"},
+        {"sounds/audios/Rimshot1.wav",       "sounds/audios/Rimshot2.wav"},
+        {"sounds/audios/downbeat.wav",       "sounds/audios/upbeat.wav"},
     };
 
     // ===== 计时器 =====
@@ -211,9 +211,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        // 释放音频焦点（Fix #9）
         abandonAudioFocus();
-        // 停止前台服务（Fix #7：Activity 销毁时服务应跟随停止）
         stopService(new Intent(this, MetronomeService.class));
         AudioEngine.nativeDestroy();
         super.onDestroy();
@@ -348,8 +346,8 @@ public class MainActivity extends AppCompatActivity {
         timbreIndex = index;
         String[] names = getResources().getStringArray(R.array.timbre_names);
         String name = names[index];
-        String hiPath = SOUND_PACKS[index][1];
-        String loPath = SOUND_PACKS[index][2];
+        String hiPath = SOUND_PACKS[index][0];
+        String loPath = SOUND_PACKS[index][1];
         AudioEngine.nativeLoadSoundPack(getAssets(), hiPath, loPath);
         tvTimbreName.setText(name);
         prefsManager.setTimbre(index);
@@ -826,15 +824,16 @@ public class MainActivity extends AppCompatActivity {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
-    private void toggleLanguage() {
-        String current = prefsManager.getLanguage();
-        String next = current.equals("zh") ? "en" : "zh";
+        private void toggleLanguage() {
+        String next = prefsManager.getLanguage().equals("zh") ? "en" : "zh";
         prefsManager.setLanguage(next);
-        
-        // 重启 Activity 以应用新语言
-        Intent intent = getIntent();
-        finish();
+        applyLanguage(next);
+        Intent intent = getBaseContext().getPackageManager()
+                .getLaunchIntentForPackage(getBaseContext().getPackageName());
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
+        finishAffinity();
+        System.exit(0);
     }
 
     private void applyLanguage(String lang) {

@@ -103,6 +103,6 @@ public class PreferencesManager {
     }
 
     public void setLanguage(String lang) {
-        prefs.edit().putString(KEY_LANGUAGE, lang).apply();
+        prefs.edit().putString(KEY_LANGUAGE, lang).commit();
     }
 }
