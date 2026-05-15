@@ -16,6 +16,7 @@ public class PreferencesManager {
     private static final String KEY_TIMBRE      = "timbre";
     private static final String KEY_GAIN_LEVEL  = "gain_level";
     private static final String KEY_ACCENT_INDEX = "accent_index";
+    private static final String KEY_LANGUAGE     = "language";
 
     private static final double  DEFAULT_BPM         = 180.0;
     private static final int     DEFAULT_TICK_VOLUME  = 80;
@@ -95,5 +96,13 @@ public class PreferencesManager {
 
     public void setAccentIndex(int index) {
         prefs.edit().putInt(KEY_ACCENT_INDEX, index).apply();
+    }
+
+    public String getLanguage() {
+        return prefs.getString(KEY_LANGUAGE, "zh");
+    }
+
+    public void setLanguage(String lang) {
+        prefs.edit().putString(KEY_LANGUAGE, lang).apply();
     }
 }

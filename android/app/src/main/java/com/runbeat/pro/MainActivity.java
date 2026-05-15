@@ -38,11 +38,17 @@ import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import java.util.Locale;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 
 public class MainActivity extends AppCompatActivity {
 
     // ===== 控件 =====
+    private TextView btnLangToggle;
+    private View layoutTheme;
     private View btnThemeColor;
+    private TextView tvThemeName;
     private View viewStatusDot;
     private TextView tvStatus;
     private TextView btnRestart;
@@ -81,7 +87,8 @@ public class MainActivity extends AppCompatActivity {
         0xFF4CAF50, // 绿野
         0xFFE0E0E0, // 白月
     };
-    private static final String[] ACCENT_NAMES = {"橙焰", "青电", "紫脉", "绿野", "白月"};
+    private static final String[] ACCENT_NAMES_ZH = {"橙焰", "青电", "紫脉", "绿野", "白月"};
+    private static final String[] ACCENT_NAMES_EN = {"Flame", "Cyan", "Purple", "Green", "White"};
 
     // ===== 音色包 =====
     // 每行：{显示名, 强拍 wav, 弱拍 wav（null 表示单音色，与强拍相同）}
@@ -135,6 +142,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 加载持久化配置（需要在 super.onCreate 前处理语言）
+        prefsManager = new PreferencesManager(this);
+        applyLanguage(prefsManager.getLanguage());
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -146,7 +157,6 @@ public class MainActivity extends AppCompatActivity {
         AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "sounds/default/chime.wav");
 
         // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
-        prefsManager = new PreferencesManager(this);
         bpm = prefsManager.getBpm();
         int savedVolume = prefsManager.getTickVolume();
         boolean savedAccent = prefsManager.isAccentEnabled();
@@ -212,7 +222,10 @@ public class MainActivity extends AppCompatActivity {
     // ===== 视图绑定 =====
 
     private void bindViews() {
+        btnLangToggle = findViewById(R.id.btnLangToggle);
+        layoutTheme = findViewById(R.id.layoutTheme);
         btnThemeColor = findViewById(R.id.btnThemeColor);
+        tvThemeName = findViewById(R.id.tvThemeName);
         viewStatusDot = findViewById(R.id.viewStatusDot);
         tvStatus = findViewById(R.id.tvStatus);
         btnRestart = findViewById(R.id.btnRestart);
@@ -278,13 +291,14 @@ public class MainActivity extends AppCompatActivity {
         });
 
         layoutTimbre.setOnClickListener(v -> showTimbreDialog());
-        btnThemeColor.setOnClickListener(v -> showThemeDialog());
+        layoutTheme.setOnClickListener(v -> showThemeDialog());
+        btnLangToggle.setOnClickListener(v -> toggleLanguage());
 
         btnLock.setOnClickListener(v -> {
             if (!isLocked) {
                 isLocked = true;
                 updateLockState();
-                Toast.makeText(this, "已锁定", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.msg_locked), Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -318,24 +332,22 @@ public class MainActivity extends AppCompatActivity {
     // ===== 音色切换 =====
 
     private void showTimbreDialog() {
-        String[] names = new String[SOUND_PACKS.length];
-        for (int i = 0; i < SOUND_PACKS.length; i++) {
-            names[i] = SOUND_PACKS[i][0];
-        }
+        String[] names = getResources().getStringArray(R.array.timbre_names);
         new AlertDialog.Builder(this)
-                .setTitle("选择音色")
+                .setTitle(R.string.dialog_timbre_title)
                 .setSingleChoiceItems(names, timbreIndex, (dialog, which) -> {
                     loadTimbre(which);
                     dialog.dismiss();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.btn_cancel, null)
                 .show();
     }
 
     private void loadTimbre(int index) {
         if (index < 0 || index >= SOUND_PACKS.length) return;
         timbreIndex = index;
-        String name = SOUND_PACKS[index][0];
+        String[] names = getResources().getStringArray(R.array.timbre_names);
+        String name = names[index];
         String hiPath = SOUND_PACKS[index][1];
         String loPath = SOUND_PACKS[index][2];
         AudioEngine.nativeLoadSoundPack(getAssets(), hiPath, loPath);
@@ -357,7 +369,7 @@ public class MainActivity extends AppCompatActivity {
                 if (isLocked) {
                     isLocked = false;
                     updateLockState();
-                    Toast.makeText(MainActivity.this, "已解锁", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, getString(R.string.msg_unlocked), Toast.LENGTH_SHORT).show();
                     if (isRunning && !isPaused) {
                         scheduleAutoLock();
                     }
@@ -384,7 +396,7 @@ public class MainActivity extends AppCompatActivity {
             if (isRunning && !isPaused && !isLocked) {
                 isLocked = true;
                 updateLockState();
-                Toast.makeText(MainActivity.this, "已自动锁定", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, getString(R.string.msg_auto_locked), Toast.LENGTH_SHORT).show();
             }
         };
         autoLockHandler.postDelayed(autoLockRunnable, 60_000);
@@ -637,10 +649,9 @@ public class MainActivity extends AppCompatActivity {
         if (pm == null) return;
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
             new AlertDialog.Builder(this)
-                    .setTitle("建议关闭电池优化")
-                    .setMessage("为确保跑步时节拍器后台长时间（4h+）不被系统杀死，" +
-                            "建议将 RunBeat Pro 加入电池优化白名单。")
-                    .setPositiveButton("去设置", (d, w) -> {
+                    .setTitle(R.string.dialog_battery_title)
+                    .setMessage(R.string.dialog_battery_msg)
+                    .setPositiveButton(R.string.btn_go_to_settings, (d, w) -> {
                         try {
                             Intent intent = new Intent(
                                     Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
@@ -677,17 +688,17 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateStatusDisplay() {
         if (!isRunning) {
-            tvStatus.setText("STOPPED");
+            tvStatus.setText(R.string.status_stopped);
             viewStatusDot.setBackgroundResource(R.drawable.status_dot);
-            btnStartPause.setText("START");
+            btnStartPause.setText(R.string.btn_start);
         } else if (isPaused) {
-            tvStatus.setText("PAUSED");
+            tvStatus.setText(R.string.status_paused);
             viewStatusDot.setBackgroundResource(R.drawable.status_dot);
-            btnStartPause.setText("RESUME");
+            btnStartPause.setText(R.string.btn_resume);
         } else {
-            tvStatus.setText("RUNNING");
+            tvStatus.setText(R.string.status_running);
             viewStatusDot.setBackgroundResource(R.drawable.status_dot_active);
-            btnStartPause.setText("PAUSE");
+            btnStartPause.setText(R.string.btn_pause);
         }
         btnRestart.setVisibility(isRunning ? View.VISIBLE : View.GONE);
     }
@@ -696,7 +707,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showThemeDialog() {
         AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("主题色");
+        b.setTitle(R.string.dialog_theme_title);
         b.setSingleChoiceItems(
             new BaseAdapter() {
                 @Override public int getCount() { return ACCENT_COLORS.length; }
@@ -718,7 +729,8 @@ public class MainActivity extends AppCompatActivity {
                     circle.setBackground(d);
                     row.addView(circle);
                     TextView tv = new TextView(MainActivity.this);
-                    tv.setText(ACCENT_NAMES[pos]);
+                    boolean isEn = getResources().getConfiguration().getLocales().get(0).getLanguage().equals("en");
+                    tv.setText(isEn ? ACCENT_NAMES_EN[pos] : ACCENT_NAMES_ZH[pos]);
                     tv.setTextColor(pos == accentColorIndex ? ACCENT_COLORS[pos] : 0xFFCCCCCC);
                     tv.setTextSize(16);
                     row.addView(tv);
@@ -743,6 +755,10 @@ public class MainActivity extends AppCompatActivity {
         circleBg.setShape(GradientDrawable.OVAL);
         circleBg.setColor(color);
         btnThemeColor.setBackground(circleBg);
+        // 更新主题名文字
+        boolean isEn = getResources().getConfiguration().getLocales().get(0).getLanguage().equals("en");
+        tvThemeName.setText(isEn ? ACCENT_NAMES_EN[accentColorIndex] : ACCENT_NAMES_ZH[accentColorIndex]);
+        tvThemeName.setTextColor(color);
         // BPM 微调按钮（深色背景 + 主题色边框 + 涟漪）
         for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
             btn.setBackground(makeBpmRippleBg(color));
@@ -808,6 +824,26 @@ public class MainActivity extends AppCompatActivity {
 
     private int dpToPx(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void toggleLanguage() {
+        String current = prefsManager.getLanguage();
+        String next = current.equals("zh") ? "en" : "zh";
+        prefsManager.setLanguage(next);
+        
+        // 重启 Activity 以应用新语言
+        Intent intent = getIntent();
+        finish();
+        startActivity(intent);
+    }
+
+    private void applyLanguage(String lang) {
+        Locale locale = new Locale(lang);
+        Locale.setDefault(locale);
+        Resources res = getResources();
+        Configuration config = res.getConfiguration();
+        config.setLocale(locale);
+        res.updateConfiguration(config, res.getDisplayMetrics());
     }
 
     private void updateLockState() {

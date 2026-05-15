@@ -1,4 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RunBeat Pro</string>
+    <string name="status_stopped">已停止</string>
+    <string name="status_running">运行中</string>
+    <string name="status_paused">已暂停</string>
+    <string name="label_bpm">BPM</string>
+    <string name="label_volume">音量</string>
+    <string name="label_accent">重音</string>
+    <string name="label_timbre">音色</string>
+    <string name="btn_start">开始</string>
+    <string name="btn_pause">暂停</string>
+    <string name="btn_resume">继续</string>
+    <string name="msg_locked">已锁定</string>
+    <string name="msg_unlocked">已解锁</string>
+    <string name="msg_auto_locked">已自动锁定</string>
+    <string name="dialog_theme_title">主题色</string>
+    <string name="dialog_timbre_title">选择音色</string>
+    <string name="btn_cancel">取消</string>
+    <string name="lang_toggle">EN</string>
+    <string name="dialog_battery_title">建议关闭电池优化</string>
+    <string name="dialog_battery_msg">为确保跑步时节拍器后台长时间（4h+）不被系统杀死，建议将 RunBeat Pro 加入电池优化白名单。</string>
+    <string name="btn_go_to_settings">去设置</string>
+
+    <!-- 音色名称 -->
+    <string-array name="timbre_names">
+        <item>默认</item>
+        <item>底鼓</item>
+        <item>拍手</item>
+        <item>响棒</item>
+        <item>边击</item>
+        <item>强弱拍</item>
+    </string-array>
 </resources>

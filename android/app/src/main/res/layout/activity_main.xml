@@ -13,7 +13,7 @@
     android:paddingTop="12dp"
     android:paddingBottom="16dp">
 
-    <!-- ① 状态区：圆点 + 状态文字 + 锁按钮 -->
+    <!-- ① 状态区：语言切换 + 主题色 + 状态文字 + 锁按钮 -->
     <LinearLayout
         android:id="@+id/layoutStatusBar"
         android:layout_width="match_parent"
@@ -22,14 +22,48 @@
         android:gravity="center_vertical"
         android:layout_marginBottom="8dp">
 
-        <!-- 主题色选择圆点（最左侧，程序动态设置颜色） -->
-        <View
-            android:id="@+id/btnThemeColor"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_marginEnd="12dp"
+        <!-- 语言切换按钮 -->
+        <TextView
+            android:id="@+id/btnLangToggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="@string/lang_toggle"
+            android:textColor="@color/textSecondary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackground"
             android:clickable="true"
-            android:focusable="true" />
+            android:focusable="true"
+            android:layout_marginEnd="8dp" />
+
+        <!-- 主题色选择（圆点 + 文字说明） -->
+        <LinearLayout
+            android:id="@+id/layoutTheme"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
+            android:padding="4dp"
+            android:layout_marginEnd="12dp">
+
+            <View
+                android:id="@+id/btnThemeColor"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_marginEnd="6dp" />
+
+            <TextView
+                android:id="@+id/tvThemeName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="橙焰"
+                android:textColor="@color/textSecondary"
+                android:textSize="12sp" />
+        </LinearLayout>
 
         <View
             android:id="@+id/viewStatusDot"
@@ -43,10 +77,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="STOPPED"
+            android:text="@string/status_stopped"
             android:textColor="@color/textPrimary"
-            android:textSize="16sp"
-            android:letterSpacing="0.1" />
+            android:textSize="15sp"
+            android:letterSpacing="0.05" />
 
         <FrameLayout
             android:layout_width="72dp"
@@ -110,7 +144,7 @@
             android:id="@+id/tvBpmLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="BPM"
+            android:text="@string/label_bpm"
             android:textColor="@color/colorPrimaryVariant"
             android:textSize="18sp"
             android:letterSpacing="0.2"
@@ -243,9 +277,9 @@
 
         <TextView
             android:id="@+id/tvTickVolumeLabel"
-            android:layout_width="44dp"
+            android:layout_width="56dp"
             android:layout_height="wrap_content"
-            android:text="音量"
+            android:text="@string/label_volume"
             android:textColor="@color/textSecondary"
             android:textSize="13sp" />
 
@@ -286,7 +320,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="重音"
+            android:text="@string/label_accent"
             android:textColor="@color/textSecondary"
             android:textSize="14sp" />
 
@@ -314,7 +348,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="音色"
+            android:text="@string/label_timbre"
             android:textColor="@color/textSecondary"
             android:textSize="14sp"
             android:layout_marginEnd="8dp" />
