@@ -152,7 +152,11 @@ public:
                     tickLoPlayer_.Play();
                 }
             }
-            float tickSample = tickPlayer_.ReadOne() + tickLoPlayer_.ReadOne();
+            // 始终推进两个 player（确保 voice 指针能跑到末尾自然停止），
+            // 但只将当前 accent 对应的 player 输出参与混音，避免"残留长尾"叠加。
+            float hiSample  = tickPlayer_.ReadOne();
+            float loSample  = tickLoPlayer_.ReadOne();
+            float tickSample = accent ? hiSample : loSample;
             float chimeSample = chimePlayer_.ReadOne();
             out[i] = tickSample * tickGain + chimeSample * chimeGain;
         }

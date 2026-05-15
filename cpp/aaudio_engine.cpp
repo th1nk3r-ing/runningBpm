@@ -75,7 +75,9 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
     if (!mgr) return JNI_FALSE;
 
-    int targetRate = 48000;
+    // 使用 AAudio 流实际采样率（nativeInit 中 OpenStream 已确定），
+    // 确保 WAV 重采样到与引擎一致的采样率，避免音高/速度漂移。
+    int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
     std::vector<float> samples;
 
     // tick_hi
@@ -221,16 +223,20 @@ static void RebuildStream() {
         return;
     }
 
-    // 仅当引擎处于 Running 时才重新启动流
-    if (gEngine.GetState() == AudioEngine::State::Running) {
+    // Running 或 Paused 时均重启流：
+    //   Running → 立即恢复音频输出
+    //   Paused  → 流进入 STARTED，但引擎在 OnAudioCallback 里输出静音，以便 Resume 零延迟
+    //   Idle    → 仅 Open，等用户按 START
+    AudioEngine::State s = gEngine.GetState();
+    if (s == AudioEngine::State::Running || s == AudioEngine::State::Paused) {
         aaudio_result_t result = AAudioStream_requestStart(gStream);
         if (result == AAUDIO_OK) {
-            LOGI("RebuildStream: stream restarted");
+            LOGI("RebuildStream: stream restarted (state=%d)", static_cast<int>(s));
         } else {
             LOGE("RebuildStream: requestStart failed: %d", result);
         }
     } else {
-        LOGI("RebuildStream: engine not running, stream opened but not started");
+        LOGI("RebuildStream: engine idle, stream opened but not started");
     }
 }
 
@@ -240,8 +246,9 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/) {
     LOGI("nativeInit");
 
-    // 先打开 AAudio 流，得到设备实际采样率，再按此采样率生成样本，
-    // 避免 click 速度/音高随设备 SR 漂移造成的"难听"。
+    // 打开 AAudio 流，得到设备实际采样率，再按此采样率生成样本。
+    // 注意：此处只 Open 不 Start，流在 OPEN 状态等待 nativeStart()。
+    // 避免 App 启动时就独占音频设备（违反 Android 音频焦点规范）。
     OpenStream();
 
     std::vector<float> tickHi, tickLo;
@@ -249,9 +256,8 @@ Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/)
     gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
     gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
-    if (gStream) {
-        AAudioStream_requestStart(gStream);
-    }
+    // 预分配 mono 混合缓冲区（4096 帧），避免首次 dataCallback 触发 malloc（实时安全要求）。
+    gMonoBuf.assign(4096, 0.0f);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -264,24 +270,44 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
     LOGI("nativeStart(%.1f)", bpm);
     gEngine.Start(static_cast<double>(bpm));
+    // 启动 AAudio 流（OPEN/STOPPED/PAUSED → STARTED）
+    if (gStream) {
+        aaudio_result_t r = AAudioStream_requestStart(gStream);
+        if (r != AAUDIO_OK) LOGE("nativeStart: requestStart failed: %d", r);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeStop(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeStop");
     gEngine.Stop();
+    // 停止 AAudio 流（STARTED → STOPPED），释放独占模式的音频设备占用。
+    if (gStream) {
+        aaudio_result_t r = AAudioStream_requestStop(gStream);
+        if (r != AAUDIO_OK) LOGE("nativeStop: requestStop failed: %d", r);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativePause(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativePause");
     gEngine.Pause();
+    // 暂停 AAudio 流（STARTED → PAUSED），暂停期间不占用 CPU 和音频设备。
+    if (gStream) {
+        aaudio_result_t r = AAudioStream_requestPause(gStream);
+        if (r != AAUDIO_OK) LOGE("nativePause: requestPause failed: %d", r);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeResume");
     gEngine.Resume();
+    // 从 PAUSED/STOPPED 状态重新启动 AAudio 流
+    if (gStream) {
+        aaudio_result_t r = AAudioStream_requestStart(gStream);
+        if (r != AAUDIO_OK) LOGE("nativeResume: requestStart failed: %d", r);
+    }
 }
 
 // ========== JNI — 运行时参数 ==========

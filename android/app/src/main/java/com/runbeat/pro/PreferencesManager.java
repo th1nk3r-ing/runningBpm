@@ -6,19 +6,23 @@ import android.content.SharedPreferences;
 public class PreferencesManager {
 
     private static final String PREF_NAME = "runbeat_prefs";
-    private static final String KEY_BPM = "bpm";
+
+    // KEY_BPM_LEGACY: 旧版以 float 存储的键（只读，用于迁移）
+    private static final String KEY_BPM_LEGACY  = "bpm";
+    // KEY_BPM_BITS: 新版以 long 存储 double 位模式，零精度损失
+    private static final String KEY_BPM_BITS    = "bpm_bits";
     private static final String KEY_TICK_VOLUME = "tick_volume";
-    private static final String KEY_ACCENT = "accent";
-    private static final String KEY_TIMBRE = "timbre";
-    private static final String KEY_GAIN_LEVEL = "gain_level";
+    private static final String KEY_ACCENT      = "accent";
+    private static final String KEY_TIMBRE      = "timbre";
+    private static final String KEY_GAIN_LEVEL  = "gain_level";
     private static final String KEY_ACCENT_INDEX = "accent_index";
 
-    private static final float DEFAULT_BPM = 180.0f;
-    private static final int DEFAULT_TICK_VOLUME = 80;
-    private static final boolean DEFAULT_ACCENT = true;
-    private static final int DEFAULT_TIMBRE = 0;
-    private static final int DEFAULT_GAIN_LEVEL = 1; // 1=x1, 2=x2, 3=x3
-    private static final int DEFAULT_ACCENT_INDEX = 0;
+    private static final double  DEFAULT_BPM         = 180.0;
+    private static final int     DEFAULT_TICK_VOLUME  = 80;
+    private static final boolean DEFAULT_ACCENT       = true;
+    private static final int     DEFAULT_TIMBRE       = 0;
+    private static final int     DEFAULT_GAIN_LEVEL   = 1;
+    private static final int     DEFAULT_ACCENT_INDEX = 0;
 
     private final SharedPreferences prefs;
 
@@ -26,12 +30,27 @@ public class PreferencesManager {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
     }
 
+    /**
+     * 读取 BPM。优先读取新版 long bits 键；若不存在则从旧版 float 键迁移（一次性）。
+     */
     public double getBpm() {
-        return prefs.getFloat(KEY_BPM, DEFAULT_BPM);
+        if (prefs.contains(KEY_BPM_BITS)) {
+            return Double.longBitsToDouble(
+                    prefs.getLong(KEY_BPM_BITS, Double.doubleToRawLongBits(DEFAULT_BPM)));
+        }
+        // 旧版迁移：读取旧 float 值并立即写入新格式
+        double legacy = prefs.getFloat(KEY_BPM_LEGACY, (float) DEFAULT_BPM);
+        setBpm(legacy); // 写入新键，下次直接读新键
+        return legacy;
     }
 
+    /**
+     * 存储 BPM（以 Double.doubleToRawLongBits 存为 long，保留完整双精度精度）。
+     */
     public void setBpm(double bpm) {
-        prefs.edit().putFloat(KEY_BPM, (float) bpm).apply();
+        prefs.edit()
+                .putLong(KEY_BPM_BITS, Double.doubleToRawLongBits(bpm))
+                .apply();
     }
 
     public int getTickVolume() {

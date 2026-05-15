@@ -5,9 +5,15 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -121,6 +127,10 @@ public class MainActivity extends AppCompatActivity {
     private final Handler autoLockHandler = new Handler(Looper.getMainLooper());
     private Runnable autoLockRunnable = null;
 
+    // ===== 音频焦点（Fix #9）=====
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+
     // ===== 生命周期 =====
 
     @Override
@@ -131,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
         bindViews();
         setupListeners();
 
-        // 初始化 Native 引擎
+        // 初始化 Native 引擎（只打开 AAudio 流，不自动 Start）
         AudioEngine.nativeInit();
         AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "chime.wav");
 
@@ -174,6 +184,10 @@ public class MainActivity extends AppCompatActivity {
         applyAccentColor(ACCENT_COLORS[accentColorIndex]);
 
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
+
+        // 电池优化引导（Fix #8）：首次 START 前检查，不在这里弹，改在 Start 时检查
+        // 此处只在 onCreate 检查一次，避免频繁打扰
+        checkBatteryOptimization();
     }
 
     @Override
@@ -187,6 +201,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // 释放音频焦点（Fix #9）
+        abandonAudioFocus();
+        // 停止前台服务（Fix #7：Activity 销毁时服务应跟随停止）
+        stopService(new Intent(this, MetronomeService.class));
         AudioEngine.nativeDestroy();
         super.onDestroy();
     }
@@ -396,6 +414,9 @@ public class MainActivity extends AppCompatActivity {
 
             // 持久化 BPM（防抖）
             scheduleBpmSave();
+
+            // 同步服务通知中的 BPM 显示（Fix #22）
+            updateServiceNotification();
         }
     }
 
@@ -492,30 +513,36 @@ public class MainActivity extends AppCompatActivity {
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
-AudioEngine.nativeStart(bpm);
+            AudioEngine.nativeStart(bpm);
+            requestAudioFocus();  // Fix #9: 请求音频焦点
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else if (isPaused) {
             // RESUME
             isPaused = false;
             AudioEngine.nativeResume();
+            requestAudioFocus();  // Fix #9: 恢复时重新请求焦点
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else {
             // PAUSE
             isPaused = true;
             AudioEngine.nativePause();
+            abandonAudioFocus();  // Fix #9: 暂停时释放焦点
             timerHandler.removeCallbacks(timerRunnable);
             cancelAutoLock();
         }
         updateUI();
 
-        // 前台服务绑定
-        if (isRunning && !isPaused) {
-            startService(new Intent(this, MetronomeService.class));
-        } else if (!isRunning || isPaused) {
-            // 暂不停止 Service（后台保持）
-            // stopService(new Intent(this, MetronomeService.class));
+        // Fix #7: 前台服务管理
+        //   Running: 启动/维持服务
+        //   Paused:  更新通知状态（服务继续运行，以便快速 Resume）
+        //   (onDestroy 时统一 stopService)
+        if (isRunning) {
+            Intent svcIntent = new Intent(this, MetronomeService.class);
+            svcIntent.putExtra("bpm", bpm);
+            svcIntent.putExtra("paused", isPaused);
+            startService(svcIntent);
         }
     }
 
@@ -531,6 +558,96 @@ AudioEngine.nativeStart(bpm);
         timerHandler.postDelayed(timerRunnable, 1000);
         updateUI();
         scheduleAutoLock();
+        updateServiceNotification();
+    }
+
+    // ===== 前台服务通知同步（Fix #22）=====
+
+    /**
+     * 向 MetronomeService 发送当前 BPM 和暂停状态，触发通知内容更新。
+     * 只在服务已启动（isRunning=true）时才有效。
+     */
+    private void updateServiceNotification() {
+        if (!isRunning) return;
+        Intent svcIntent = new Intent(this, MetronomeService.class);
+        svcIntent.putExtra("bpm", bpm);
+        svcIntent.putExtra("paused", isPaused);
+        startService(svcIntent);
+    }
+
+    // ===== 音频焦点管理（Fix #9）=====
+
+    /**
+     * 请求 AUDIOFOCUS_GAIN（长期焦点，适合跑步全程）。
+     * 焦点丢失时（如来电结束后对方接管）自动暂停节拍器。
+     */
+    private void requestAudioFocus() {
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager == null) return;
+
+        AudioAttributes attrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+
+        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setWillPauseWhenDucked(false)  // 跑步者需要完整音量，不自动降音
+                .setOnAudioFocusChangeListener(focusChange -> {
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                        // 其他 App 长期占用焦点（如导航语音结束后播放器接管）→ 暂停
+                        if (isRunning && !isPaused) {
+                            isPaused = true;
+                            AudioEngine.nativePause();
+                            timerHandler.removeCallbacks(timerRunnable);
+                            cancelAutoLock();
+                            runOnUiThread(this::updateUI);
+                            updateServiceNotification();
+                        }
+                    }
+                    // AUDIOFOCUS_LOSS_TRANSIENT / TRANSIENT_CAN_DUCK：
+                    // 短暂打断（如导航提示音），跑步场景保持节拍不暂停。
+                }, new Handler(Looper.getMainLooper()))
+                .build();
+
+        audioManager.requestAudioFocus(audioFocusRequest);
+    }
+
+    /** 放弃音频焦点（暂停或销毁时调用）。 */
+    private void abandonAudioFocus() {
+        if (audioManager != null && audioFocusRequest != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            audioFocusRequest = null;
+        }
+    }
+
+    // ===== 电池优化引导（Fix #8）=====
+
+    /**
+     * 检查是否已在电池优化白名单，否则弹框引导用户添加。
+     * 仅在 onCreate 时检查一次，避免每次 START 都打扰。
+     */
+    private void checkBatteryOptimization() {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm == null) return;
+        if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+            new AlertDialog.Builder(this)
+                    .setTitle("建议关闭电池优化")
+                    .setMessage("为确保跑步时节拍器后台长时间（4h+）不被系统杀死，" +
+                            "建议将 RunBeat Pro 加入电池优化白名单。")
+                    .setPositiveButton("去设置", (d, w) -> {
+                        try {
+                            Intent intent = new Intent(
+                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                        } catch (Exception e) {
+                            // 部分定制 ROM 不支持此 Intent，静默忽略
+                        }
+                    })
+                    .setNegativeButton("忽略", null)
+                    .show();
+        }
     }
 
     // ===== UI 刷新 =====
