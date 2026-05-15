@@ -8,7 +8,9 @@
 #include "Limiter.hpp"
 
 /**
- * 音频引擎状态机 — 整合 Clock、SamplePlayer、Mixer、Limiter 为完整 Pipeline。
+ * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为完整 Pipeline。
+ *
+ * 注意：混音步骤（tick + chime）在 OnAudioCallback 中内联实现，未使用独立的 Mixer 类。
  *
  * 线程模型：
  *   - 控制线程（Main/JNI）：Start/Stop/Pause/Resume/SetBpm/SetVolume/TriggerChime
@@ -16,11 +18,11 @@
  *   参数通过 std::atomic 无锁交换，音频线程在 callback 入口处一次加载。
  *
  * Pipeline 各帧：
- *   1. Clock.Advance()                   → 是否触发 tick
- *   2. tickPlayer.Play() / .ReadOne()    → tick 采样
- *   3. chimePlayer.ReadOne()             → chime 采样
- *   4. 混合：out[i] = tick * gain + chime * gain
- *   5. Limiter::Process()                → tanh 软限幅
+ *   1. Clock.Advance()                    → 是否触发 tick
+ *   2. tickPlayer.Play() / .ReadOne()     → tick 采样（hi 或 lo 由 accent 决定）
+ *   3. chimePlayer.ReadOne()              → chime 采样
+ *   4. 内联混音：out[i] = tick * tickGain + chime * chimeGain
+ *   5. Limiter::ProcessHard()             → 硬限幅（±0.97），保留 click 瞬态线性度
  */
 class AudioEngine {
 public:

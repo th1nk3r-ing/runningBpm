@@ -6,10 +6,11 @@
 #include <cmath>
 
 /**
- * 简易 WAV 解析器 — 仅支持 16-bit PCM Mono。
+ * 简易 WAV 解析器。
  *
- * 支持：采样率任意，自动重采样至 targetSampleRate。
- * 输入格式：标准 RIFF WAV（PCM, 16-bit, mono）。
+ * 支持格式：标准 RIFF WAV，PCM 16-bit mono，采样率任意。
+ * 不支持：stereo、24/32-bit、IEEE float、压缩格式。
+ * 重采样：若 targetSampleRate > 0 且与文件采样率不同，自动线性重采样至目标采样率。
  *
  * 用法：
  *   WavLoader loader;
@@ -55,7 +56,11 @@ public:
                 if (bitsPerSample != 16) return false; // 16-bit only
 
             } else if (chunkId == 0x61746164) { // "data"
-                int numSamples = static_cast<int>(chunkSize / 2);
+                // clamp 实际可读字节数，防止 chunkSize 超出文件末尾时越界访问
+                size_t availableBytes = (pos + chunkSize <= dataSize)
+                                        ? chunkSize
+                                        : (dataSize - pos);
+                int numSamples = static_cast<int>(availableBytes / 2);
                 rawPcm.resize(numSamples);
                 for (int i = 0; i < numSamples; ++i) {
                     rawPcm[i] = static_cast<int16_t>(
@@ -134,7 +139,7 @@ private:
 // ===== WAV 文件生成器（构建时使用） =====
 
 struct WavGenerator {
-    /** 生成指数衰减正弦波 WAV 文件数据 */
+    /** 将 float PCM 采样数据编码为 16-bit mono WAV 文件字节流 */
     static std::vector<uint8_t> Generate(const std::vector<float>& samples,
                                           int sampleRate) {
         // 转为 16-bit PCM

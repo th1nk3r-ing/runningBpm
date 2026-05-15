@@ -135,19 +135,35 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
 
 ---
 
-### 10. 项目代码结构建议
+### 10. 项目代码结构（实际）
 
 ```text
-/RunBeat
-  ├── /core (C++ Shared)
-  │     ├── Clock.hpp         // 相位计算核心
-  │     ├── Mixer.hpp         // 混音与限幅
-  │     └── AudioEngine.cpp   // 状态机与流程控制
-  ├── /android
-  │     ├── aaudio_engine.cpp  // JNI 与 AAudio 驱动
-  │     └── Service.kt        // 前台服务与保活
-  └── /ios
-        ├── AudioUnit.mm      // Obj-C++ 驱动
-        └── RemoteCmd.swift   // 锁屏控制
+/cpp
+  ├── CMakeLists.txt
+  ├── aaudio_engine.cpp          // JNI 桥接 + AAudio 驱动
+  ├── gen_wav.cpp                // WAV 资源离线生成工具
+  └── /core (C++ Shared)
+        ├── Clock.hpp            // 倒计数式节拍时钟
+        ├── SamplePlayer.hpp     // Voice Pool 多复音播放器
+        ├── Mixer.hpp            // 双路信号混音（双源→mono）
+        ├── Limiter.hpp          // 软/硬限幅器
+        ├── AudioEngine.hpp      // 引擎状态机与完整 Pipeline
+        └── WavLoader.hpp        // WAV 解析 + 重采样 + 生成
+/android
+  └── /app/src/main
+        ├── /java/com/runbeat/pro
+        │     ├── MainActivity.java      // UI 与交互逻辑
+        │     ├── MetronomeService.java  // 前台服务与保活（WakeLock）
+        │     └── PreferencesManager.java
+        ├── /java/com/runbeat/audio
+        │     └── AudioEngine.java       // JNI 接口声明
+        └── /assets/sounds/default
+              ├── tick_hi.wav
+              ├── tick_lo.wav
+              └── chime.wav
+/ios  （Phase 4，TODO：待实现）
+  ├── AudioEngineBridge.mm   // Obj-C++ 桥接，持有 C++ AudioEngine 实例
+  ├── AudioUnit.mm           // RemoteIO AudioUnit 回调驱动
+  └── RemoteCmd.swift        // MPRemoteCommandCenter 锁屏控制
 ```
 

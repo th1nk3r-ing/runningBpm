@@ -106,7 +106,8 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
 
 // ========== AAudio 回调 ==========
 
-// 复用的 mono 临时缓冲（音频线程独占；首帧分配后 capacity 足够即不再 realloc）
+// 复用的 mono 临时缓冲（音频线程独占）。
+// nativeInit 中预 reserve 4096 帧；callback 内用 capacity 判断，避免 realloc（实时安全）。
 static std::vector<float> gMonoBuf;
 
 static aaudio_data_callback_result_t dataCallback(
@@ -116,10 +117,13 @@ static aaudio_data_callback_result_t dataCallback(
     if (gStreamChannels <= 1) {
         gEngine.OnAudioCallback(out, numFrames);
     } else {
-        // 多通道（一般为 stereo）：先生成 mono，再交错写入每个通道
-        if (static_cast<int32_t>(gMonoBuf.size()) < numFrames) {
-            gMonoBuf.assign(static_cast<size_t>(numFrames), 0.0f);
+        // 多通道（一般为 stereo）：先生成 mono，再交错写入每个通道。
+        // 用 capacity 判断，避免 callback 内发生 heap 分配（nativeInit 已 reserve 4096 帧）。
+        if (gMonoBuf.capacity() < static_cast<size_t>(numFrames)) {
+            // 超出预分配容量（设备 burst size 异常大），紧急扩容 — 正常情况不触发
+            gMonoBuf.reserve(static_cast<size_t>(numFrames));
         }
+        gMonoBuf.resize(static_cast<size_t>(numFrames));
         gEngine.OnAudioCallback(gMonoBuf.data(), numFrames);
         const int ch = gStreamChannels;
         for (int i = 0; i < numFrames; ++i) {
@@ -256,8 +260,9 @@ Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/)
     gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
     gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
-    // 预分配 mono 混合缓冲区（4096 帧），避免首次 dataCallback 触发 malloc（实时安全要求）。
-    gMonoBuf.assign(4096, 0.0f);
+    // 预分配 mono 混合缓冲区（4096 帧）：reserve 设置 capacity，
+    // 使 dataCallback 中的 resize 不触发 heap 分配（实时安全要求）。
+    gMonoBuf.reserve(4096);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -360,8 +365,12 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
     const char* cHi = env->GetStringUTFChars(tickHiPath, nullptr);
     LOGI("nativeLoadSoundPack: hi=%s", cHi);
 
+    // 使用 AAudio 流实际采样率（与 nativeLoadWavAssets 保持一致），
+    // 避免蓝牙等非 48kHz 设备上音色音高/速度漂移。
+    int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
+
     std::vector<float> hiSamples;
-    bool hiOk = LoadWavFromAsset(mgr, cHi, hiSamples, 48000);
+    bool hiOk = LoadWavFromAsset(mgr, cHi, hiSamples, targetRate);
     env->ReleaseStringUTFChars(tickHiPath, cHi);
 
     if (!hiOk || hiSamples.empty()) {
@@ -375,7 +384,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
         const char* cLo = env->GetStringUTFChars(tickLoPath, nullptr);
         if (cLo && cLo[0] != '\0') {
             LOGI("nativeLoadSoundPack: lo=%s", cLo);
-            loOk = LoadWavFromAsset(mgr, cLo, loSamples, 48000);
+            loOk = LoadWavFromAsset(mgr, cLo, loSamples, targetRate);
         }
         env->ReleaseStringUTFChars(tickLoPath, cLo);
     }

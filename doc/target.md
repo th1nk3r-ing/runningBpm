@@ -58,17 +58,20 @@
   - [ ] 返回 `jstring`，logcat 打一行 "native loaded"
 - [ ] **验收**：`AudioEngine.java` 侧调用 `nativeHello()`，logcat 看到 native 输出
 
-### 2.2 相位累加器 — `Clock.hpp`
+### 2.2 节拍时钟 — `Clock.hpp`
+> **注**：最终实现采用倒计数方式（framesPerTick/framesToNextTick），与相位累加（phase/deltaPhi）数学等价，但更直观易验证。
+
 - [ ] 数据结构
-  - [ ] `double phase_ = 0.0`
-  - [ ] `double deltaPhi_ = 0.0`
+  - [ ] `double framesPerTick_`（= sampleRate * 60 / BPM，等价于 1/deltaPhi）
+  - [ ] `double framesToNextTick_`（倒计数，触发后 += framesPerTick_，误差不跨 tick 累积）
   - [ ] `int sampleRate_`
-- [ ] `SetBPM(double bpm)` → `deltaPhi_ = bpm / (60.0 * sampleRate_)`
+- [ ] `SetBPM(double bpm)` → `framesPerTick_ = sampleRate * 60 / bpm`，重置 framesToNextTick_
+- [ ] `SetBPMPreservePhase(double bpm)` → 保持剩余比例不变，用于运行中调 BPM
 - [ ] `Process(int numFrames)` → per-sample 循环
-  - [ ] `phase_ += deltaPhi_`
-  - [ ] 若 `phase_ >= 1.0`：标记 tick 触发位，`phase_ -= 1.0`
+  - [ ] `framesToNextTick_ -= 1.0`
+  - [ ] 若 `<= 0.0`：标记 tick 触发位，`framesToNextTick_ += framesPerTick_`
   - [ ] 返回 tick 触发帧索引数组
-- [ ] **验收**：构造 BPM=150, sampleRate=48000 输入 4800000 步（100 秒），验证累积相位误差 < 1e-15
+- [ ] **验收**：构造 BPM=150, sampleRate=48000 输入 4800000 步（100 秒），验证 tick 数量精确 = 250，无累积误差
 
 ### 2.3 采样播放器 — `SamplePlayer.hpp`
 - [ ] 数据结构

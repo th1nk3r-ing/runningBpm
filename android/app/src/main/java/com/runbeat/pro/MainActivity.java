@@ -143,7 +143,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化 Native 引擎（只打开 AAudio 流，不自动 Start）
         AudioEngine.nativeInit();
-        AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "chime.wav");
+        AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "sounds/default/chime.wav");
 
         // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
         prefsManager = new PreferencesManager(this);
@@ -240,10 +240,10 @@ public class MainActivity extends AppCompatActivity {
     // ===== 事件注册 =====
 
     private void setupListeners() {
-        btnBpmMinus5.setOnClickListener(v -> adjustBpm(-5));
-        btnBpmMinus1.setOnClickListener(v -> adjustBpm(-1));
-        btnBpmPlus1.setOnClickListener(v -> adjustBpm(+1));
-        btnBpmPlus5.setOnClickListener(v -> adjustBpm(+5));
+        btnBpmMinus5.setOnClickListener(v -> adjustBpm(v, -5));
+        btnBpmMinus1.setOnClickListener(v -> adjustBpm(v, -1));
+        btnBpmPlus1.setOnClickListener(v -> adjustBpm(v, +1));
+        btnBpmPlus5.setOnClickListener(v -> adjustBpm(v, +5));
 
         setupBpmHold(btnBpmMinus5, -5);
         setupBpmHold(btnBpmPlus5, +5);
@@ -399,7 +399,12 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== BPM 调节 =====
 
-    private void adjustBpm(int delta) {
+    /**
+     * 调整 BPM 并更新 UI/引擎/通知。
+     * @param source 触发操作的 View（用于在正确的 view 上触发触觉反馈）
+     * @param delta  BPM 变化量（正负均可）
+     */
+    private void adjustBpm(View source, int delta) {
         double newBpm = bpm + delta;
         if (newBpm < 120.0) newBpm = 120.0;
         if (newBpm > 220.0) newBpm = 220.0;
@@ -409,8 +414,8 @@ public class MainActivity extends AppCompatActivity {
             updateBpmDisplay();
             animateBpmChange();
 
-            // 触觉反馈
-            btnBpmMinus5.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            // 触觉反馈：在实际触发操作的 view 上执行，避免在已禁用的按钮上误触发
+            source.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
 
             // 持久化 BPM（防抖）
             scheduleBpmSave();
@@ -434,15 +439,15 @@ public class MainActivity extends AppCompatActivity {
                         v.postDelayed(() -> {
                             if (v.isPressed()) {
                                 isLongPress = true;
-                                adjustBpm(delta);
-                                startBpmRepeat(delta);
+                                adjustBpm(v, delta);
+                                startBpmRepeat(v, delta);
                             }
                         }, android.view.ViewConfiguration.getLongPressTimeout());
                         return true;
                     case MotionEvent.ACTION_UP:
                         stopBpmRepeat();
                         v.setPressed(false);
-                        if (!isLongPress) adjustBpm(delta);
+                        if (!isLongPress) adjustBpm(v, delta);
                         return true;
                     case MotionEvent.ACTION_CANCEL:
                         stopBpmRepeat();
@@ -454,12 +459,12 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void startBpmRepeat(int delta) {
+    private void startBpmRepeat(View source, int delta) {
         stopBpmRepeat();
         bpmHoldRunnable = new Runnable() {
             @Override
             public void run() {
-                adjustBpm(delta);
+                adjustBpm(source, delta);
                 bpmHoldHandler.postDelayed(this, 100);
             }
         };

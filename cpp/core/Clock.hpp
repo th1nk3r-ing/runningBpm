@@ -1,14 +1,16 @@
 #pragma once
 
 #include <vector>
-#include <algorithm>
 
 /**
- * 相位累加器 — 跨 buffer 维护连续相位，消除累积量化误差。
+ * 倒计数式节拍时钟 — 跨 buffer 维护连续倒计数，消除累积量化误差。
  *
  * 采用 countdown 方式：每采样递减 framesToNextTick_，
  * 归零时触发 tick 并加上 framesPerTick_。
  * 此方式将浮点误差约束在每个 tick 内，不跨 tick 累积。
+ *
+ * 注意：与相位累加器（phase += deltaPhi；phase >= 1.0 时触发）在数学上等价，
+ *       framesPerTick = 1/deltaPhi（单位：帧），但直接以帧数倒计数更直观易验证。
  *
  * 核心公式：
  *   framesPerTick  = sampleRate * 60 / BPM
@@ -22,10 +24,18 @@ public:
         UpdateFramesPerTick();
     }
 
-    /** 设置采样率（音频路由变更时调用） */
+    /**
+     * 设置采样率（音频路由变更时调用）。
+     * 保持当前相位百分比连续：新 framesPerTick 下剩余比例与旧值相同，
+     * 避免采样率切换（如蓝牙耳机接入）导致下一拍提前或推迟。
+     */
     void SetSampleRate(int sr) noexcept {
+        if (sampleRate_ == sr) return;
+        // 保存旧相位比例（剩余帧数 / 总帧数）
+        double ratio = (framesPerTick_ > 0.0) ? (framesToNextTick_ / framesPerTick_) : 1.0;
         sampleRate_ = sr;
-        UpdateFramesPerTick();
+        UpdateFramesPerTick();                        // 会重置 framesToNextTick_ = framesPerTick_
+        framesToNextTick_ = framesPerTick_ * ratio;   // 用旧比例修正，保持相位连续
     }
 
     /**
