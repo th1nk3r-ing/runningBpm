@@ -1,0 +1,590 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		01B55B59E45D0D390DF2317F /* BassDrum2.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5E4D536137B05E89D629BB0D /* BassDrum2.wav */; };
+		0B6B948341D6B0322E479321 /* AccentRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D17E0A1FF9F895B136EE898 /* AccentRow.swift */; };
+		0BD1448C75F9D116892DF8B3 /* StartPauseButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E92343DF8005B572DAB92CB /* StartPauseButton.swift */; };
+		0C95CD57DA03356F3125C517 /* BassDrum1.wav in Resources */ = {isa = PBXBuildFile; fileRef = 9D1345249FCAA648C1AB6A0B /* BassDrum1.wav */; };
+		185253D0290B142E33917FE2 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3A8AC04CA79D2B2EE6B5B604 /* Localizable.strings */; };
+		1FD52FC0626519A9A5DD565A /* Clap1.wav in Resources */ = {isa = PBXBuildFile; fileRef = C1D0421BBCC5C2CB4720A4F5 /* Clap1.wav */; };
+		309EE09203F94EB8745A4617 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D185F3CF0A88C1103362C5D /* AppState.swift */; };
+		32E7AA0A71C33EA15DDEF9D9 /* AudioEngineBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 02C6AF8EF423B009FA027DE4 /* AudioEngineBridge.mm */; };
+		4B6A6BAC97FFCFBF15A13857 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */; };
+		52A90C68E1D9F28412D131D1 /* Claves2.wav in Resources */ = {isa = PBXBuildFile; fileRef = F2B221309371ADDBF8E62FDF /* Claves2.wav */; };
+		6487B577134764A30F2306FB /* tick_hi.wav in Resources */ = {isa = PBXBuildFile; fileRef = 355DF0E85B4CBA5A43E16AC3 /* tick_hi.wav */; };
+		725D5B297A65DFCF1712CDF9 /* Claves1.wav in Resources */ = {isa = PBXBuildFile; fileRef = B7CF4AA417751551C9053F2A /* Claves1.wav */; };
+		7A09CA7F9F8051EE55F8BEF4 /* ThemePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4901310096719835A744EB /* ThemePickerSheet.swift */; };
+		7B4411575AAE3843629FA138 /* Clap2.wav in Resources */ = {isa = PBXBuildFile; fileRef = 437CB0135A1AE9F4799CDA1F /* Clap2.wav */; };
+		7BDA3119BD0D9041525EAEC7 /* BPMDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C844E2A8D40895E41C1061A9 /* BPMDisplayView.swift */; };
+		7C6A3A19C7E69BEE445253DE /* TimbrePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B936842F2582C578F4A7A58A /* TimbrePickerSheet.swift */; };
+		82ACB00C5F76AD460A42E40D /* Rimshot2.wav in Resources */ = {isa = PBXBuildFile; fileRef = FC1FED7279D7FA503DFEEF9F /* Rimshot2.wav */; };
+		96326DAB7A8A97B039DAD9A6 /* StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */; };
+		9F356F34C49FC4448A50DC8E /* VolumeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F345B1E924436E7B0902C99D /* VolumeRow.swift */; };
+		A802D639985F00041258713E /* Rimshot1.wav in Resources */ = {isa = PBXBuildFile; fileRef = D3E83A4ADBF690EB780763AF /* Rimshot1.wav */; };
+		AADA4512AEDF6F4B7D999C3B /* RemoteCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */; };
+		CAF7E2D74BF785106D1B0218 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EDABAF8571E58A073F42F3B /* ContentView.swift */; };
+		CBDAD8CE47946B5AD2D314CC /* RunBeatProApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76CFF1AC18E4FDC189754CA /* RunBeatProApp.swift */; };
+		D5ED54D3FEA6EC2AF88ECF83 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F115557A5A382E522A33C4 /* AppDelegate.swift */; };
+		DAB9FC83271A7C9D367B3724 /* upbeat.wav in Resources */ = {isa = PBXBuildFile; fileRef = 21597F06EB874A419737FDE3 /* upbeat.wav */; };
+		E2815B4737DC08E1FB76D11C /* TimbreRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */; };
+		E4F7BE576094AED0D30CD8B1 /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF28165C7C33E82C2A08FB3 /* TimerView.swift */; };
+		E7339F7DEEC099B9ED42DBF0 /* downbeat.wav in Resources */ = {isa = PBXBuildFile; fileRef = FDD2D157525FDE7626486A0A /* downbeat.wav */; };
+		F38014A6040D2C15C216AEF6 /* tick_lo.wav in Resources */ = {isa = PBXBuildFile; fileRef = FF3E22BA3C465417F9AE12A0 /* tick_lo.wav */; };
+		F4EA707B68E82B1F56F914B1 /* BPMControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */; };
+		F95D825339A6A88B96941BCB /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E3BB321A37DA7F79E02F7E /* HapticManager.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		02C6AF8EF423B009FA027DE4 /* AudioEngineBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AudioEngineBridge.mm; sourceTree = "<group>"; };
+		07E3BB321A37DA7F79E02F7E /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
+		0B62A423617FBE5A89C42BEF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0D185F3CF0A88C1103362C5D /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		0FF28165C7C33E82C2A08FB3 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		1ABA7FFBE293F7D263E983B2 /* Mixer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Mixer.hpp; sourceTree = "<group>"; };
+		1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimbreRow.swift; sourceTree = "<group>"; };
+		1E4901310096719835A744EB /* ThemePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerSheet.swift; sourceTree = "<group>"; };
+		21597F06EB874A419737FDE3 /* upbeat.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = upbeat.wav; sourceTree = "<group>"; };
+		355DF0E85B4CBA5A43E16AC3 /* tick_hi.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = tick_hi.wav; sourceTree = "<group>"; };
+		38088EA46E9B3425FB99C3CF /* WavLoader.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = WavLoader.hpp; sourceTree = "<group>"; };
+		3D17E0A1FF9F895B136EE898 /* AccentRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccentRow.swift; sourceTree = "<group>"; };
+		437CB0135A1AE9F4799CDA1F /* Clap2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Clap2.wav; sourceTree = "<group>"; };
+		43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarView.swift; sourceTree = "<group>"; };
+		4BDEF6DD726D32B1DE4B0645 /* Limiter.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Limiter.hpp; sourceTree = "<group>"; };
+		52B18B508E44DBEB4819F153 /* RunBeatPro.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RunBeatPro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E4D536137B05E89D629BB0D /* BassDrum2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = BassDrum2.wav; sourceTree = "<group>"; };
+		63F115557A5A382E522A33C4 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		6EDABAF8571E58A073F42F3B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		71D7242570557E5956CB5224 /* RunBeatPro-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RunBeatPro-Bridging-Header.h"; sourceTree = "<group>"; };
+		7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
+		8E92343DF8005B572DAB92CB /* StartPauseButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartPauseButton.swift; sourceTree = "<group>"; };
+		8EC153B1BEB20B1EF6E027E6 /* zh */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = zh; path = zh.lproj/Localizable.strings; sourceTree = "<group>"; };
+		905042F8B9B6368FBC1858D9 /* AudioEngineBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioEngineBridge.h; sourceTree = "<group>"; };
+		9D1345249FCAA648C1AB6A0B /* BassDrum1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = BassDrum1.wav; sourceTree = "<group>"; };
+		AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommandManager.swift; sourceTree = "<group>"; };
+		B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BPMControlsView.swift; sourceTree = "<group>"; };
+		B76CFF1AC18E4FDC189754CA /* RunBeatProApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunBeatProApp.swift; sourceTree = "<group>"; };
+		B7CF4AA417751551C9053F2A /* Claves1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Claves1.wav; sourceTree = "<group>"; };
+		B936842F2582C578F4A7A58A /* TimbrePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimbrePickerSheet.swift; sourceTree = "<group>"; };
+		C1D0421BBCC5C2CB4720A4F5 /* Clap1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Clap1.wav; sourceTree = "<group>"; };
+		C844E2A8D40895E41C1061A9 /* BPMDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BPMDisplayView.swift; sourceTree = "<group>"; };
+		D3E83A4ADBF690EB780763AF /* Rimshot1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Rimshot1.wav; sourceTree = "<group>"; };
+		D515DA8083239060B56E04EF /* Clock.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Clock.hpp; sourceTree = "<group>"; };
+		EA753CE7A0FF43A4F8DA8BAF /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		F2B221309371ADDBF8E62FDF /* Claves2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Claves2.wav; sourceTree = "<group>"; };
+		F31C380071CA0B2F96D7F4E2 /* AudioEngine.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = AudioEngine.hpp; sourceTree = "<group>"; };
+		F345B1E924436E7B0902C99D /* VolumeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeRow.swift; sourceTree = "<group>"; };
+		FBE103839CA017C5E2C6AC6F /* SamplePlayer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SamplePlayer.hpp; sourceTree = "<group>"; };
+		FC1FED7279D7FA503DFEEF9F /* Rimshot2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Rimshot2.wav; sourceTree = "<group>"; };
+		FDD2D157525FDE7626486A0A /* downbeat.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = downbeat.wav; sourceTree = "<group>"; };
+		FF3E22BA3C465417F9AE12A0 /* tick_lo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = tick_lo.wav; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0FFAD0421BB48EC9B4BBAE55 /* default */ = {
+			isa = PBXGroup;
+			children = (
+				355DF0E85B4CBA5A43E16AC3 /* tick_hi.wav */,
+				FF3E22BA3C465417F9AE12A0 /* tick_lo.wav */,
+			);
+			path = default;
+			sourceTree = "<group>";
+		};
+		1B4DA8825CDED751EB2BF67D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8F3DB4ED934B19F9D92EB1B7 /* sounds */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		37292631F60C1F6C58A8E225 /* cpp */ = {
+			isa = PBXGroup;
+			children = (
+				FDCF0B91CA003C00E1F3207A /* core */,
+			);
+			path = cpp;
+			sourceTree = "<group>";
+		};
+		39721E8717DC82A09393998D /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		3D239F4C1FC90C1E0907132A /* runningBpm */ = {
+			isa = PBXGroup;
+			children = (
+				37292631F60C1F6C58A8E225 /* cpp */,
+			);
+			name = runningBpm;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		6F88DFC0E62FB5FD0D978F76 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				52B18B508E44DBEB4819F153 /* RunBeatPro.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7D3AEB891A0FD7869C850AEE /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				0D185F3CF0A88C1103362C5D /* AppState.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		8F3DB4ED934B19F9D92EB1B7 /* sounds */ = {
+			isa = PBXGroup;
+			children = (
+				FC6622CB2FD867589971FEF8 /* audios */,
+				0FFAD0421BB48EC9B4BBAE55 /* default */,
+			);
+			path = sounds;
+			sourceTree = "<group>";
+		};
+		9236898954F8819066FB777C /* RunBeatPro */ = {
+			isa = PBXGroup;
+			children = (
+				D79F96D99CE912F2CEC8E366 /* App */,
+				39721E8717DC82A09393998D /* Audio */,
+				ADEF43839BCA7A249FD2338C /* Bridge */,
+				3A8AC04CA79D2B2EE6B5B604 /* Localizable.strings */,
+				7D3AEB891A0FD7869C850AEE /* Model */,
+				1B4DA8825CDED751EB2BF67D /* Resources */,
+				C5CB166C51423E0140393564 /* Service */,
+				AD542506B3CFAF2AABFD0303 /* View */,
+				0B62A423617FBE5A89C42BEF /* Info.plist */,
+			);
+			path = RunBeatPro;
+			sourceTree = "<group>";
+		};
+		AD542506B3CFAF2AABFD0303 /* View */ = {
+			isa = PBXGroup;
+			children = (
+				3D17E0A1FF9F895B136EE898 /* AccentRow.swift */,
+				B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */,
+				C844E2A8D40895E41C1061A9 /* BPMDisplayView.swift */,
+				6EDABAF8571E58A073F42F3B /* ContentView.swift */,
+				8E92343DF8005B572DAB92CB /* StartPauseButton.swift */,
+				43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */,
+				1E4901310096719835A744EB /* ThemePickerSheet.swift */,
+				B936842F2582C578F4A7A58A /* TimbrePickerSheet.swift */,
+				1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */,
+				0FF28165C7C33E82C2A08FB3 /* TimerView.swift */,
+				F345B1E924436E7B0902C99D /* VolumeRow.swift */,
+			);
+			path = View;
+			sourceTree = "<group>";
+		};
+		ADEF43839BCA7A249FD2338C /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				905042F8B9B6368FBC1858D9 /* AudioEngineBridge.h */,
+				02C6AF8EF423B009FA027DE4 /* AudioEngineBridge.mm */,
+				71D7242570557E5956CB5224 /* RunBeatPro-Bridging-Header.h */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		C5CB166C51423E0140393564 /* Service */ = {
+			isa = PBXGroup;
+			children = (
+				07E3BB321A37DA7F79E02F7E /* HapticManager.swift */,
+				7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */,
+				AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */,
+			);
+			path = Service;
+			sourceTree = "<group>";
+		};
+		CFB1AA625E3C4F5D9B4F4344 = {
+			isa = PBXGroup;
+			children = (
+				9236898954F8819066FB777C /* RunBeatPro */,
+				3D239F4C1FC90C1E0907132A /* runningBpm */,
+				6F88DFC0E62FB5FD0D978F76 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D79F96D99CE912F2CEC8E366 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				63F115557A5A382E522A33C4 /* AppDelegate.swift */,
+				B76CFF1AC18E4FDC189754CA /* RunBeatProApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		FC6622CB2FD867589971FEF8 /* audios */ = {
+			isa = PBXGroup;
+			children = (
+				9D1345249FCAA648C1AB6A0B /* BassDrum1.wav */,
+				5E4D536137B05E89D629BB0D /* BassDrum2.wav */,
+				C1D0421BBCC5C2CB4720A4F5 /* Clap1.wav */,
+				437CB0135A1AE9F4799CDA1F /* Clap2.wav */,
+				B7CF4AA417751551C9053F2A /* Claves1.wav */,
+				F2B221309371ADDBF8E62FDF /* Claves2.wav */,
+				FDD2D157525FDE7626486A0A /* downbeat.wav */,
+				D3E83A4ADBF690EB780763AF /* Rimshot1.wav */,
+				FC1FED7279D7FA503DFEEF9F /* Rimshot2.wav */,
+				21597F06EB874A419737FDE3 /* upbeat.wav */,
+			);
+			path = audios;
+			sourceTree = "<group>";
+		};
+		FDCF0B91CA003C00E1F3207A /* core */ = {
+			isa = PBXGroup;
+			children = (
+				F31C380071CA0B2F96D7F4E2 /* AudioEngine.hpp */,
+				D515DA8083239060B56E04EF /* Clock.hpp */,
+				4BDEF6DD726D32B1DE4B0645 /* Limiter.hpp */,
+				1ABA7FFBE293F7D263E983B2 /* Mixer.hpp */,
+				FBE103839CA017C5E2C6AC6F /* SamplePlayer.hpp */,
+				38088EA46E9B3425FB99C3CF /* WavLoader.hpp */,
+			);
+			path = core;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA2A0CD8CC33E1E7E2B6E0C3 /* RunBeatPro */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 71CA2AA147DC212CCB0D19ED /* Build configuration list for PBXNativeTarget "RunBeatPro" */;
+			buildPhases = (
+				789FA3838F01D26A2740D0FC /* Copy WAV Resources */,
+				210A457F9473CC4EC98A3DA1 /* Sources */,
+				614CE6286157C3D343EF52C1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RunBeatPro;
+			packageProductDependencies = (
+			);
+			productName = RunBeatPro;
+			productReference = 52B18B508E44DBEB4819F153 /* RunBeatPro.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7678AD72BC15FD643C7F60A3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					AA2A0CD8CC33E1E7E2B6E0C3 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = C2676311D31C9BAD1E6F81B8 /* Build configuration list for PBXProject "RunBeatPro" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				zh,
+			);
+			mainGroup = CFB1AA625E3C4F5D9B4F4344;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6F88DFC0E62FB5FD0D978F76 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA2A0CD8CC33E1E7E2B6E0C3 /* RunBeatPro */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		614CE6286157C3D343EF52C1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0C95CD57DA03356F3125C517 /* BassDrum1.wav in Resources */,
+				01B55B59E45D0D390DF2317F /* BassDrum2.wav in Resources */,
+				1FD52FC0626519A9A5DD565A /* Clap1.wav in Resources */,
+				7B4411575AAE3843629FA138 /* Clap2.wav in Resources */,
+				725D5B297A65DFCF1712CDF9 /* Claves1.wav in Resources */,
+				52A90C68E1D9F28412D131D1 /* Claves2.wav in Resources */,
+				185253D0290B142E33917FE2 /* Localizable.strings in Resources */,
+				A802D639985F00041258713E /* Rimshot1.wav in Resources */,
+				82ACB00C5F76AD460A42E40D /* Rimshot2.wav in Resources */,
+				E7339F7DEEC099B9ED42DBF0 /* downbeat.wav in Resources */,
+				6487B577134764A30F2306FB /* tick_hi.wav in Resources */,
+				F38014A6040D2C15C216AEF6 /* tick_lo.wav in Resources */,
+				DAB9FC83271A7C9D367B3724 /* upbeat.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		789FA3838F01D26A2740D0FC /* Copy WAV Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy WAV Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "SRC_DIR=\"${SRCROOT}/../android/app/src/main/assets/sounds\"\nDST_DIR=\"${SRCROOT}/RunBeatPro/Resources/sounds\"\nif [ -d \"$SRC_DIR\" ]; then\n  rsync -aq --delete \"$SRC_DIR/\" \"$DST_DIR/\"\n  echo \"Copied WAV resources from $SRC_DIR\"\nelse\n  echo \"Warning: Source sounds directory not found at $SRC_DIR\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		210A457F9473CC4EC98A3DA1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B6B948341D6B0322E479321 /* AccentRow.swift in Sources */,
+				D5ED54D3FEA6EC2AF88ECF83 /* AppDelegate.swift in Sources */,
+				309EE09203F94EB8745A4617 /* AppState.swift in Sources */,
+				32E7AA0A71C33EA15DDEF9D9 /* AudioEngineBridge.mm in Sources */,
+				F4EA707B68E82B1F56F914B1 /* BPMControlsView.swift in Sources */,
+				7BDA3119BD0D9041525EAEC7 /* BPMDisplayView.swift in Sources */,
+				CAF7E2D74BF785106D1B0218 /* ContentView.swift in Sources */,
+				F95D825339A6A88B96941BCB /* HapticManager.swift in Sources */,
+				4B6A6BAC97FFCFBF15A13857 /* PreferencesManager.swift in Sources */,
+				AADA4512AEDF6F4B7D999C3B /* RemoteCommandManager.swift in Sources */,
+				CBDAD8CE47946B5AD2D314CC /* RunBeatProApp.swift in Sources */,
+				0BD1448C75F9D116892DF8B3 /* StartPauseButton.swift in Sources */,
+				96326DAB7A8A97B039DAD9A6 /* StatusBarView.swift in Sources */,
+				7A09CA7F9F8051EE55F8BEF4 /* ThemePickerSheet.swift in Sources */,
+				7C6A3A19C7E69BEE445253DE /* TimbrePickerSheet.swift in Sources */,
+				E2815B4737DC08E1FB76D11C /* TimbreRow.swift in Sources */,
+				E4F7BE576094AED0D30CD8B1 /* TimerView.swift in Sources */,
+				9F356F34C49FC4448A50DC8E /* VolumeRow.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		3A8AC04CA79D2B2EE6B5B604 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				EA753CE7A0FF43A4F8DA8BAF /* en */,
+				8EC153B1BEB20B1EF6E027E6 /* zh */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		213220CF70AA93D1A979CEAF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../cpp/core",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "RunBeatPro/Bridge/RunBeatPro-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		4B803482C0EDD3549EFC11A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = RunBeatPro/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.runbeat.pro;
+				SDKROOT = iphoneos;
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "RunBeatPro-Swift.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7C037FBFDB5C2DA909CF7B98 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = RunBeatPro/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.runbeat.pro;
+				SDKROOT = iphoneos;
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "RunBeatPro-Swift.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9C0FDA7D7E9FD5D99A13587C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../cpp/core",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "RunBeatPro/Bridge/RunBeatPro-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		71CA2AA147DC212CCB0D19ED /* Build configuration list for PBXNativeTarget "RunBeatPro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B803482C0EDD3549EFC11A8 /* Debug */,
+				7C037FBFDB5C2DA909CF7B98 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C2676311D31C9BAD1E6F81B8 /* Build configuration list for PBXProject "RunBeatPro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9C0FDA7D7E9FD5D99A13587C /* Debug */,
+				213220CF70AA93D1A979CEAF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7678AD72BC15FD643C7F60A3 /* Project object */;
+}

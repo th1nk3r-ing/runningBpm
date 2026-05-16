@@ -1,0 +1,17 @@
+"status_stopped" = "已停止";
+"status_running" = "运行中";
+"status_paused" = "已暂停";
+"label_bpm" = "BPM";
+"label_volume" = "音量";
+"label_accent" = "重音";
+"label_timbre" = "音色";
+"btn_start" = "开始";
+"btn_pause" = "暂停";
+"btn_resume" = "继续";
+"msg_locked" = "已锁定";
+"msg_unlocked" = "已解锁";
+"msg_auto_locked" = "已自动锁定";
+"dialog_theme_title" = "主题色";
+"dialog_timbre_title" = "选择音色";
+"btn_cancel" = "取消";
+"lang_toggle" = "EN";

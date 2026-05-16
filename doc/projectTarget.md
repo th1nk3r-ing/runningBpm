@@ -1,4 +1,4 @@
-# 🏃 专业级跑步节拍器 (RunBeat Pro) 技术方案
+# 🏃 专业级跑步节拍器 (RunBeat Pro) 设计方案
 
 ### 1. 核心架构：跨平台 "Core + Shell"
 
