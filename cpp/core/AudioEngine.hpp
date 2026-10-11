@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 
 #include "Clock.hpp"
 #include "SamplePlayer.hpp"
@@ -16,6 +17,7 @@
  *   - 控制线程（Main/JNI）：Start/Stop/Pause/Resume/SetBpm/SetVolume/TriggerChime
  *   - 音频线程（AAudio callback）：OnAudioCallback（必须实时安全）
  *   参数通过 std::atomic 无锁交换，音频线程在 callback 入口处一次加载。
+ *   Clock 状态仅由 callback 线程访问；Start / SetSampleRate 通过原子请求应用。
  *
  * Pipeline 各帧：
  *   1. Clock.Advance()                    → 是否触发 tick
@@ -35,18 +37,16 @@ public:
 
     void Start(double bpm) noexcept {
         bpm_.store(bpm, std::memory_order_relaxed);
-        // 显式同步 Clock BPM 并重置相位，确保第一拍按新 BPM 触发，
-        // 避免"上次 Stop 时残留的 framesPerTick(旧 BPM)"让首拍提前/推迟。
-        clock_.SetBPM(bpm);
-        state_.store(State::Running, std::memory_order_relaxed);
+        // Clock 由音频线程独占。下一个 callback 会看到 generation 变化并重置时钟。
+        startGeneration_.fetch_add(1, std::memory_order_release);
+        state_.store(State::Running, std::memory_order_release);
     }
 
     void Stop() noexcept {
-        state_.store(State::Idle, std::memory_order_relaxed);
+        state_.store(State::Idle, std::memory_order_release);
         tickPlayer_.Stop();
         tickLoPlayer_.Stop();
         chimePlayer_.Stop();
-        clock_.Reset();
     }
 
     void Pause() noexcept {
@@ -80,9 +80,9 @@ public:
         outputGain_.store(gain, std::memory_order_relaxed);
     }
 
-    /** 同步 AAudio 实际采样率到 Clock */
+    /** 请求更新采样率；实际 Clock 修改由下一次音频 callback 执行。 */
     void SetSampleRate(int sr) noexcept {
-        clock_.SetSampleRate(sr);
+        requestedSampleRate_.store(sr, std::memory_order_release);
     }
 
     void TriggerChime() noexcept {
@@ -126,9 +126,23 @@ public:
             for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
             return;
         }
-        if (state_.load(std::memory_order_relaxed) != State::Running) {
+        if (state_.load(std::memory_order_acquire) != State::Running) {
             for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
             return;
+        }
+
+        // Clock 的全部运行时访问均发生在 callback 线程。
+        const int requestedSampleRate = requestedSampleRate_.load(std::memory_order_acquire);
+        if (requestedSampleRate != appliedSampleRate_) {
+            clock_.SetSampleRate(requestedSampleRate);
+            appliedSampleRate_ = requestedSampleRate;
+        }
+
+        const std::uint64_t startGeneration =
+                startGeneration_.load(std::memory_order_acquire);
+        if (startGeneration != appliedStartGeneration_) {
+            clock_.SetBPM(bpm_.load(std::memory_order_relaxed));
+            appliedStartGeneration_ = startGeneration;
         }
 
         // 一次性加载参数（relaxed 足够，单生产者单消费者）
@@ -177,6 +191,11 @@ private:
     std::atomic<bool> loading_{false};
 
     std::atomic<double> bpm_{180.0};
+    std::atomic<std::uint64_t> startGeneration_{0};
+    std::atomic<int> requestedSampleRate_{48000};
+    // 仅由 OnAudioCallback 所在线程访问。
+    std::uint64_t appliedStartGeneration_ = 0;
+    int appliedSampleRate_ = 48000;
     // 默认 tick 音量略降到 0.7：click 波形峰值约 0.55，乘 0.7 后峰值 ~0.39，
     // 远低于硬限幅 0.97 阈值，可保持瞬态完全线性。
     std::atomic<double> tickGain_{0.7};

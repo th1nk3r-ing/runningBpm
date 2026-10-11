@@ -8,10 +8,12 @@
  */
 
 #include "../core/AudioEngine.hpp"
+#include <atomic>
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <thread>
 #include <vector>
 
 // ===== WAV 写入 =====
@@ -134,9 +136,90 @@ TickAnalysis AnalyzeTicks(const float* audio, int numFrames, int sampleRate,
     return result;
 }
 
+// Verify that sample-rate and Start requests are applied by the callback thread,
+// and that every Start resets the first-tick phase using the latest settings.
+bool TestDeferredClockUpdates() {
+    constexpr float kImpulse[] = {1.0f};
+    AudioEngine engine;
+    engine.LoadTickSamples(kImpulse, 1);
+    engine.SetTickVolume(1.0);
+    engine.SetSampleRate(24000);
+
+    auto firstSignalFrame = [](const std::vector<float>& audio) {
+        for (size_t i = 0; i < audio.size(); ++i) {
+            if (audio[i] != 0.0f) return static_cast<int>(i);
+        }
+        return -1;
+    };
+
+    std::vector<float> firstBeat(24000, 0.0f);
+    engine.Start(60.0);
+    engine.OnAudioCallback(firstBeat.data(), static_cast<int>(firstBeat.size()));
+    const int firstStartFrame = firstSignalFrame(firstBeat);
+
+    engine.Stop();
+    std::vector<float> restartedBeat(12000, 0.0f);
+    engine.Start(120.0);
+    engine.OnAudioCallback(restartedBeat.data(), static_cast<int>(restartedBeat.size()));
+    const int restartFrame = firstSignalFrame(restartedBeat);
+    engine.Stop();
+
+    const bool passed = firstStartFrame == 23999 && restartFrame == 11999;
+    printf("Deferred clock updates: first=%d (expected 23999), restart=%d (expected 11999): %s\n",
+           firstStartFrame, restartFrame, passed ? "PASS" : "FAIL");
+    return passed;
+}
+
+// Stress control requests while a separate thread continuously renders callbacks.
+// Run this test under ThreadSanitizer to verify Clock remains callback-thread-owned.
+bool TestConcurrentClockControl() {
+    AudioEngine engine;
+    std::atomic<bool> render{true};
+    std::atomic<bool> finiteOutput{true};
+    std::atomic<int> callbackCount{0};
+
+    std::thread callbackThread([&] {
+        float output[128];
+        while (render.load(std::memory_order_relaxed)) {
+            engine.OnAudioCallback(output, 128);
+            for (float sample : output) {
+                if (!std::isfinite(sample)) {
+                    finiteOutput.store(false, std::memory_order_relaxed);
+                }
+            }
+            callbackCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    while (callbackCount.load(std::memory_order_relaxed) == 0) {
+        std::this_thread::yield();
+    }
+
+    for (int i = 0; i < 20000; ++i) {
+        engine.SetSampleRate((i & 1) ? 44100 : 48000);
+        engine.Start(120.0 + static_cast<double>(i % 61));
+        if (i % 3 == 0) {
+            engine.Pause();
+            engine.Resume();
+        } else {
+            engine.Stop();
+        }
+    }
+
+    render.store(false, std::memory_order_relaxed);
+    callbackThread.join();
+    engine.Stop();
+    const bool passed = finiteOutput.load(std::memory_order_relaxed);
+    printf("Concurrent clock control: callbacks=%d, finite output: %s\n",
+           callbackCount.load(std::memory_order_relaxed), passed ? "PASS" : "FAIL");
+    return passed;
+}
+
 // ===== 主测试 =====
 
 int main() {
+    const bool clockUpdatesOk = TestDeferredClockUpdates();
+    const bool concurrentClockControlOk = TestConcurrentClockControl();
     constexpr int kSampleRate = 48000;
     constexpr double kBPM = 150.0;
     constexpr int kDurationSec = 10;
@@ -202,6 +285,7 @@ int main() {
            analysis.maxJitter, jitterOk ? "PASS" : "FAIL");
 
     printf("\n=== %s ===\n",
-           (countOk && jitterOk) ? "ALL PASS" : "FAILURES DETECTED");
-    return (countOk && jitterOk) ? 0 : 1;
+           (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk)
+               ? "ALL PASS" : "FAILURES DETECTED");
+    return (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk) ? 0 : 1;
 }
