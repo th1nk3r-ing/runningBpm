@@ -1,21 +1,30 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <thread>
 
 #include "Clock.hpp"
 #include "SamplePlayer.hpp"
 #include "Limiter.hpp"
+
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+              "Audio callback requires lock-free 64-bit atomics");
+static_assert(std::atomic<double>::is_always_lock_free,
+              "Audio callback requires lock-free double atomics");
 
 /**
  * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为完整 Pipeline。
  *
  * 线程模型：
  *   - 控制线程（Main/JNI）：Start/Stop/Pause/Resume/SetBpm/SetVolume/TriggerChime
- *   - 音频线程（AAudio callback）：OnAudioCallback（必须实时安全）
+ *   - 单一、串行的音频回调线程（AAudio/AudioUnit）：OnAudioCallback（必须实时安全）
  *   参数通过 std::atomic 无锁交换，音频线程在 callback 入口处一次加载。
  *   Clock 状态仅由 callback 线程访问；Start / SetSampleRate 通过原子请求应用。
+ *   样本更新会等待所有在途 callback；Clock 和 voice 状态仍要求 callback 不重入。
+ *   Debug 构建会在回调重入时断言失败。
  *
  * Pipeline 各帧：
  *   1. Clock.Advance()                    → 是否触发 tick
@@ -35,25 +44,27 @@ public:
 
     void Start(double bpm) noexcept {
         bpm_.store(bpm, std::memory_order_relaxed);
-        // Clock 由音频线程独占。下一个 callback 会看到 generation 变化并重置时钟。
+        // Clock 由音频线程独占。generation 是合并式请求：callback 应用最新 BPM 和相位重置。
         startGeneration_.fetch_add(1, std::memory_order_release);
         state_.store(State::Running, std::memory_order_release);
     }
 
     void Stop() noexcept {
         state_.store(State::Idle, std::memory_order_release);
+        pendingChimeTriggers_.store(0, std::memory_order_relaxed);
         tickPlayer_.Stop();
         tickLoPlayer_.Stop();
         chimePlayer_.Stop();
     }
 
     void Pause() noexcept {
-        state_.store(State::Paused, std::memory_order_relaxed);
+        state_.store(State::Paused, std::memory_order_release);
+        pendingChimeTriggers_.store(0, std::memory_order_relaxed);
     }
 
     void Resume() noexcept {
-        if (state_.load(std::memory_order_relaxed) == State::Paused) {
-            state_.store(State::Running, std::memory_order_relaxed);
+        if (state_.load(std::memory_order_acquire) == State::Paused) {
+            state_.store(State::Running, std::memory_order_release);
         }
     }
 
@@ -80,11 +91,20 @@ public:
 
     /** 请求更新采样率；实际 Clock 修改由下一次音频 callback 执行。 */
     void SetSampleRate(int sr) noexcept {
-        requestedSampleRate_.store(sr, std::memory_order_release);
+        requestedSampleRate_.store(sr, std::memory_order_relaxed);
     }
 
     void TriggerChime() noexcept {
-        chimePlayer_.Play();
+        if (state_.load(std::memory_order_relaxed) != State::Running) return;
+        // Voice state is callback-thread-owned. Queue a bounded number of requests
+        // instead of calling SamplePlayer::Play() from the control thread.
+        unsigned pending = pendingChimeTriggers_.load(std::memory_order_relaxed);
+        while (pending < SamplePlayer::kVoices &&
+               !pendingChimeTriggers_.compare_exchange_weak(
+                       pending, pending + 1,
+                       std::memory_order_release,
+                       std::memory_order_relaxed)) {
+        }
     }
 
     [[nodiscard]] State GetState() const noexcept {
@@ -94,33 +114,62 @@ public:
     // ===== 样本加载（启动前调用） =====
 
     void LoadTickSamples(const float* data, size_t length) noexcept {
+        BeginSampleUpdate();
         tickPlayer_.Load(data, length);
+        EndSampleUpdate();
     }
 
     void LoadTickLoSamples(const float* data, size_t length) noexcept {
+        BeginSampleUpdate();
         tickLoPlayer_.Load(data, length);
+        EndSampleUpdate();
     }
 
     void LoadChimeSamples(const float* data, size_t length) noexcept {
+        BeginSampleUpdate();
         chimePlayer_.Load(data, length);
+        EndSampleUpdate();
     }
 
     // ===== 音频回调（实时线程，严禁阻塞/分配） =====
 
     /**
      * 运行时替换 tick 样本（控制线程调用）。
-     * 使用 seq_cst 保证：音频线程若看到 loading_=false，必定也看到完整的新样本数据。
+     * 在控制线程等待当前 callback 退出；更新期间的新 callback 输出静音。
      */
     void LoadSoundPack(const float* tickHi, size_t tickHiLen,
                         const float* tickLo, size_t tickLoLen) noexcept {
-        loading_.store(true, std::memory_order_seq_cst);   // ① 先设标志（seq_cst 全屏障）
-        tickPlayer_.Load(tickHi, tickHiLen);                // ② 写新样本
+        BeginSampleUpdate();
+        tickPlayer_.Load(tickHi, tickHiLen);
         tickLoPlayer_.Load(tickLo, tickLoLen);
-        loading_.store(false, std::memory_order_seq_cst);  // ③ 清除标志（seq_cst 全屏障）
+        EndSampleUpdate();
     }
 
     void OnAudioCallback(float* out, int numFrames) noexcept {
+#ifndef NDEBUG
+        // Catch a host violating the documented single-serial-callback contract.
+        if (callbackActive_.test_and_set(std::memory_order_acquire)) {
+            assert(false && "AudioEngine::OnAudioCallback must not be reentrant");
+            return;
+        }
+        struct CallbackReentryGuard {
+            std::atomic_flag& active;
+            ~CallbackReentryGuard() { active.clear(std::memory_order_release); }
+        } callbackReentryGuard{callbackActive_};
+#endif
         if (loading_.load(std::memory_order_seq_cst)) {    // seq_cst 确保看到最新值
+            for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
+            return;
+        }
+        activeCallbacks_.fetch_add(1, std::memory_order_seq_cst);
+        struct CallbackScope {
+            std::atomic<unsigned>& active;
+            ~CallbackScope() { active.fetch_sub(1, std::memory_order_seq_cst); }
+        } callbackScope{activeCallbacks_};
+
+        // Close the race where a sample update starts between the initial check
+        // and publishing this callback as active.
+        if (loading_.load(std::memory_order_seq_cst)) {
             for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
             return;
         }
@@ -130,7 +179,7 @@ public:
         }
 
         // Clock 的全部运行时访问均发生在 callback 线程。
-        const int requestedSampleRate = requestedSampleRate_.load(std::memory_order_acquire);
+        const int requestedSampleRate = requestedSampleRate_.load(std::memory_order_relaxed);
         if (requestedSampleRate != appliedSampleRate_) {
             clock_.SetSampleRate(requestedSampleRate);
             appliedSampleRate_ = requestedSampleRate;
@@ -153,8 +202,11 @@ public:
         float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed)) * outGain;
         bool accent = accentOn_.load(std::memory_order_relaxed);
 
+        const unsigned chimeCount = pendingChimeTriggers_.exchange(0, std::memory_order_acquire);
+        for (unsigned i = 0; i < chimeCount; ++i) {
+            chimePlayer_.Play();
+        }
         // 每帧推进两个 player 让长尾自然结束，只混入 accent 对应的一路。
-        // 注意：accent 关闭时，所有 tick 触发都使用 tickLoPlayer_（弱拍/单一音色）。
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
                 if (accent) {
@@ -175,20 +227,42 @@ public:
     }
 
 private:
+    void BeginSampleUpdate() noexcept {
+        // Serialize control-thread writers. This wait never occurs on the audio thread.
+        while (sampleUpdateLock_.test_and_set(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        loading_.store(true, std::memory_order_seq_cst);
+        while (activeCallbacks_.load(std::memory_order_seq_cst) != 0) {
+            std::this_thread::yield();
+        }
+    }
+
+    void EndSampleUpdate() noexcept {
+        loading_.store(false, std::memory_order_seq_cst);
+        sampleUpdateLock_.clear(std::memory_order_release);
+    }
+
     Clock clock_;
     SamplePlayer tickPlayer_;
     SamplePlayer tickLoPlayer_;
     SamplePlayer chimePlayer_;
 
     std::atomic<bool> loading_{false};
+    std::atomic<unsigned> activeCallbacks_{0};
+    std::atomic_flag sampleUpdateLock_ = ATOMIC_FLAG_INIT;
+    std::atomic_flag callbackActive_ = ATOMIC_FLAG_INIT;
+    std::atomic<unsigned> pendingChimeTriggers_{0};
 
     std::atomic<double> bpm_{180.0};
     std::atomic<std::uint64_t> startGeneration_{0};
+    // 最新值请求；callback 之间的多次采样率更新会合并为最后一个值。
     std::atomic<int> requestedSampleRate_{48000};
     // 仅由 OnAudioCallback 所在线程访问。
     std::uint64_t appliedStartGeneration_ = 0;
     int appliedSampleRate_ = 48000;
-    std::atomic<double> tickGain_{0.7};  // 预留限幅余量
+    // 默认生成 click 峰值裁剪到 ±0.6；x1 时乘 0.7 后不超过 ±0.42（硬限幅阈值 ±0.97）。
+    std::atomic<double> tickGain_{0.7};
     std::atomic<double> chimeGain_{0.5};
     std::atomic<bool> accentOn_{true};
     // 输出总倍率，叠加在 tick/chime 增益之上

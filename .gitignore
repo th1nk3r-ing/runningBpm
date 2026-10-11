@@ -17,3 +17,4 @@ local.properties
 *.keystore
 *.jks
 cpp/gen_wav
+cpp/test/clock_test

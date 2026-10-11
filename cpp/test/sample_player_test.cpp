@@ -53,23 +53,24 @@ int main() {
     for (int i = 0; i < 10; ++i) if (buf4[i] != 0.0f) finalZero = false;
     printf("Test 4 (finished → silence):     %s\n", finalZero ? "PASS" : "FAIL");
 
-    // Test 5：gain 系数生效
-    player.Play();
+    // Test 5：gain 系数生效（分别用新 voice，避免复音叠加影响比较）
+    SamplePlayer unitGainPlayer;
+    SamplePlayer halfGainPlayer;
+    unitGainPlayer.Load(pulse, kSampleLen);
+    halfGainPlayer.Load(pulse, kSampleLen);
+    unitGainPlayer.Play();
+    halfGainPlayer.Play();
     float buf5a[10], buf5b[10];
-    player.Render(buf5a, 10, 1.0f);
-    float buf5c[10];
-    player.Render(buf5c, 10, 1.0f);  // 继续消耗到 readPos=20
-    // 重新播放测试 gain
-    player.Play();
-    player.Render(buf5b, 10, 0.5f);
+    unitGainPlayer.Render(buf5a, 10, 1.0f);
+    halfGainPlayer.Render(buf5b, 10, 0.5f);
     bool gainWorks = true;
     for (int i = 0; i < 10; ++i) {
         if (std::abs(buf5b[i] - buf5a[i] * 0.5f) > 1e-7f) gainWorks = false;
     }
     printf("Test 5 (gain scaling):           %s\n", gainWorks ? "PASS" : "FAIL");
 
-    printf("\n=== %s ===\n",
-           (allZero && hasSignal && firstHalfSignal && secondHalfZero && finalZero && gainWorks)
-           ? "ALL PASS" : "FAILURES DETECTED");
-    return 0;
+    const bool allPass = allZero && hasSignal && firstHalfSignal && secondHalfZero &&
+            finalZero && gainWorks;
+    printf("\n=== %s ===\n", allPass ? "ALL PASS" : "FAILURES DETECTED");
+    return allPass ? 0 : 1;
 }

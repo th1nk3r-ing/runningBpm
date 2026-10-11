@@ -12,10 +12,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)destroyEngine;
 
 // ===== 引擎生命周期 =====
-- (void)startWithBpm:(double)bpm;
+- (BOOL)startWithBpm:(double)bpm;
 - (void)stop;
 - (void)pause;
-- (void)resume;
+- (BOOL)resume;
+
+// AudioSession interruption / route-change handling.
+- (void)handleAudioInterruptionBegan;
+- (void)handleAudioInterruptionEndedShouldResume:(BOOL)shouldResume;
+- (void)handleAudioRouteChange;
 
 // ===== 运行时参数 =====
 - (void)setBpm:(double)bpm;
@@ -40,10 +45,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 // ===== 采样率同步 =====
 - (void)setSampleRate:(int)sr;
-
-// ===== 流重建标记 =====
-@property (nonatomic, readonly) BOOL needsStreamRebuild;
-- (void)rebuildStream;
 
 @end
 

@@ -4,11 +4,13 @@
 #include <vector>
 #include <cstring>
 #include <cmath>
+#include <limits>
 
 /**
  * 简易 WAV 解析器。
  *
  * 支持格式：标准 RIFF WAV，PCM 16-bit mono，采样率任意。
+ * 要求 RIFF/chunk 声明不越过实际数据范围，奇数长度 chunk 带 RIFF padding；拒绝截断或占位长度文件。
  * 不支持：stereo、24/32-bit、IEEE float、压缩格式。
  * 重采样：若 targetSampleRate > 0 且与文件采样率不同，自动线性重采样至目标采样率。
  *
@@ -24,48 +26,56 @@ public:
     bool Load(const uint8_t* wavData, size_t dataSize, int targetSampleRate = 0) {
         Reset();
 
-        size_t pos = 0;
-
         // RIFF header
-        if (dataSize < 44) return false;
-        if (Read32(wavData, pos) != 0x46464952) return false; // "RIFF"
-        pos += 4;
-        uint32_t fileSize = Read32(wavData, pos); pos += 4;
-        if (Read32(wavData, pos) != 0x45564157) return false; // "WAVE"
-        pos += 4;
+        if (wavData == nullptr || dataSize < 44) return false;
+        if (Read32(wavData, 0) != 0x46464952) return false; // "RIFF"
+        const uint32_t fileSize = Read32(wavData, 4);
+        if (Read32(wavData, 8) != 0x45564157) return false; // "WAVE"
+        if (fileSize < 4 || static_cast<size_t>(fileSize) > dataSize - 8) return false;
+        const size_t riffEnd = 8 + static_cast<size_t>(fileSize);
+        size_t pos = 12;
 
         // Chunks
         int sampleRate = 0;
         int bitsPerSample = 0;
         std::vector<int16_t> rawPcm;
 
-        while (pos + 8 <= dataSize) {
-            uint32_t chunkId = Read32(wavData, pos); pos += 4;
-            uint32_t chunkSize = Read32(wavData, pos); pos += 4;
-            uint32_t nextPos = pos + chunkSize;
+        while (pos < riffEnd) {
+            if (riffEnd - pos < 8) return false;
+            const uint32_t chunkId = Read32(wavData, pos);
+            const uint32_t chunkSize = Read32(wavData, pos + 4);
+            const size_t payloadPos = pos + 8;
+            if (static_cast<size_t>(chunkSize) > riffEnd - payloadPos) return false;
+            size_t nextPos = payloadPos + static_cast<size_t>(chunkSize);
+            if ((chunkSize & 1U) != 0) {
+                if (nextPos >= riffEnd) return false;
+                ++nextPos; // RIFF chunks are padded to an even byte boundary.
+            }
 
             if (chunkId == 0x20746D66) { // "fmt "
                 if (chunkSize < 16) return false;
-                uint16_t audioFormat = Read16(wavData, pos);
-                uint16_t numChannels = Read16(wavData, pos + 2);
-                sampleRate = static_cast<int>(Read32(wavData, pos + 4));
-                bitsPerSample = Read16(wavData, pos + 14);
+                uint16_t audioFormat = Read16(wavData, payloadPos);
+                uint16_t numChannels = Read16(wavData, payloadPos + 2);
+                uint32_t parsedSampleRate = Read32(wavData, payloadPos + 4);
+                if (parsedSampleRate == 0 ||
+                    parsedSampleRate > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+                    return false;
+                }
+                sampleRate = static_cast<int>(parsedSampleRate);
+                bitsPerSample = Read16(wavData, payloadPos + 14);
 
                 if (audioFormat != 1) return false; // PCM only
                 if (numChannels != 1) return false; // Mono only
                 if (bitsPerSample != 16) return false; // 16-bit only
 
             } else if (chunkId == 0x61746164) { // "data"
-                // clamp 实际可读字节数，防止 chunkSize 超出文件末尾时越界访问
-                size_t availableBytes = (pos + chunkSize <= dataSize)
-                                        ? chunkSize
-                                        : (dataSize - pos);
-                int numSamples = static_cast<int>(availableBytes / 2);
+                if ((chunkSize & 1U) != 0) return false; // PCM16 requires complete samples.
+                const size_t numSamples = static_cast<size_t>(chunkSize) / 2;
                 rawPcm.resize(numSamples);
-                for (int i = 0; i < numSamples; ++i) {
+                for (size_t i = 0; i < numSamples; ++i) {
                     rawPcm[i] = static_cast<int16_t>(
-                        wavData[pos + i * 2]
-                        | (static_cast<uint16_t>(wavData[pos + i * 2 + 1]) << 8));
+                        wavData[payloadPos + i * 2]
+                        | (static_cast<uint16_t>(wavData[payloadPos + i * 2 + 1]) << 8));
                 }
             }
 
@@ -206,8 +216,8 @@ struct WavGenerator {
     }
 
     /**
-     * 生成"塑料/木块"敲击 click：强拍 ~3.2kHz/45ms，弱拍 ~2.4kHz/30ms，峰值 ≤0.55。
-     * 三段包络（淡入→指数衰减→淡出）消除数字啪声与截断咔声。
+     * 生成"塑料/木块"敲击 click：强拍 ~3.2kHz/45ms，弱拍 ~2.4kHz/30ms。
+     * 0.4ms 淡入与 2ms 淡出抑制边界突变；波形裁剪到 ±0.6，避免默认增益下触及硬限幅。
      *
      * @param accent  true=强拍（更高频 + 稍长 + 略大）；false=弱拍
      */
@@ -254,7 +264,7 @@ struct WavGenerator {
             data[length - 1 - i] *= static_cast<float>(i) / fadeOut;
         }
 
-        // 裁剪到 ±0.6，远低于 Limiter 拐点
+        // 裁剪到 ±0.6，低于硬限幅阈值 ±0.97
         for (int i = 0; i < length; ++i) {
             if (data[i] > 0.6f)  data[i] = 0.6f;
             if (data[i] < -0.6f) data[i] = -0.6f;

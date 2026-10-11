@@ -38,6 +38,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import java.lang.ref.WeakReference;
 import java.util.Locale;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -78,6 +79,7 @@ public class MainActivity extends AppCompatActivity {
     private int gainLevel = 1; // 1=x1, 2=x2, 3=x3
     private int tickVolumePercent = 80;
     private int accentColorIndex = 0;
+    private boolean soundAssetsLoaded;
 
     // ===== 主题色系 =====
     private static final int[] ACCENT_COLORS = {
@@ -90,17 +92,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] ACCENT_NAMES_ZH = {"橙焰", "青电", "紫脉", "绿野", "白月"};
     private static final String[] ACCENT_NAMES_EN = {"Flame", "Cyan", "Purple", "Green", "White"};
 
-    // ===== 音色包 =====
-    // 每行：{强拍 wav, 弱拍 wav}
-    private static final String[][] SOUND_PACKS = {
-        {"sounds/default/tick_hi.wav",       "sounds/default/tick_lo.wav"},
-        {"sounds/audios/BassDrum1.wav",      "sounds/audios/BassDrum2.wav"},
-        {"sounds/audios/Clap1.wav",          "sounds/audios/Clap2.wav"},
-        {"sounds/audios/Claves1.wav",        "sounds/audios/Claves2.wav"},
-        {"sounds/audios/Rimshot1.wav",       "sounds/audios/Rimshot2.wav"},
-        {"sounds/audios/downbeat.wav",       "sounds/audios/upbeat.wav"},
-    };
-
     // ===== 计时器 =====
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private final Runnable timerRunnable = new Runnable() {
@@ -108,8 +99,6 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
-            // 检测 AAudio 流断开（耳机拔出/蓝牙切换），若断开则重建流
-            AudioEngine.nativeRebuildStreamIfNeeded();
             if (isRunning && !isPaused) {
                 timerHandler.postDelayed(this, 1000);
             }
@@ -135,8 +124,9 @@ public class MainActivity extends AppCompatActivity {
     private Runnable autoLockRunnable = null;
 
     // ===== 音频焦点（Fix #9）=====
-    private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
+    private static AudioManager retainedAudioManager;
+    private static AudioFocusRequest retainedAudioFocusRequest;
+    private static WeakReference<MainActivity> audioFocusOwner = new WeakReference<>(null);
 
     // ===== 生命周期 =====
 
@@ -152,9 +142,11 @@ public class MainActivity extends AppCompatActivity {
         bindViews();
         setupListeners();
 
-        // 初始化 Native 引擎（只打开 AAudio 流，不自动 Start）
-        AudioEngine.nativeInit();
-        AudioEngine.nativeLoadWavAssets(getAssets(), "sounds/default/tick_hi.wav", "sounds/default/tick_lo.wav", "sounds/default/chime.wav");
+        // 配置变更时复用进程内的 native 引擎，避免旧 Activity 销毁它。
+        boolean engineReady = AudioEngine.initialize();
+        if (engineReady) {
+            soundAssetsLoaded = AudioEngineRestorer.loadDefaultSamples(this);
+        }
 
         // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
         bpm = prefsManager.getBpm();
@@ -166,6 +158,10 @@ public class MainActivity extends AppCompatActivity {
             elapsedSeconds = savedInstanceState.getInt("elapsed", 0);
             isRunning = savedInstanceState.getBoolean("running", false);
             isPaused = savedInstanceState.getBoolean("paused", false);
+        } else if (MetronomeService.hasPersistedPlayback(this)) {
+            bpm = MetronomeService.getPersistedBpm(this);
+            isRunning = true;
+            isPaused = MetronomeService.wasPersistedPaused(this);
         }
 
         tickVolumePercent = savedVolume;
@@ -181,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 恢复音色
         timbreIndex = prefsManager.getTimbre();
-        if (timbreIndex >= 0 && timbreIndex < SOUND_PACKS.length) {
+        if (timbreIndex >= 0 && timbreIndex < AudioEngineRestorer.SOUND_PACKS.length) {
             loadTimbre(timbreIndex);
         }
 
@@ -194,6 +190,31 @@ public class MainActivity extends AppCompatActivity {
         applyAccentColor(ACCENT_COLORS[accentColorIndex]);
 
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
+
+        // 系统杀进程后通过 savedInstanceState 恢复时，native 引擎是新实例；
+        // 配置变更时则继续使用原有流和相位，不重复 Start。
+        if (isRunning) {
+            boolean restored = restoreAudioEngine(bpm, isPaused);
+            if (!restored) {
+                abandonAudioFocus();
+                isRunning = false;
+                isPaused = false;
+                Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
+            }
+        }
+        if (isRunning) {
+            if (!isPaused) {
+                if (requestAudioFocus()) {
+                    timerHandler.removeCallbacks(timerRunnable);
+                    timerHandler.postDelayed(timerRunnable, 1000);
+                } else {
+                    AudioEngine.nativePause();
+                    isPaused = true;
+                }
+            }
+            updateUI();
+            updateServiceNotification();
+        }
 
         // 电池优化引导（Fix #8）：首次 START 前检查，不在这里弹，改在 Start 时检查
         // 此处只在 onCreate 检查一次，避免频繁打扰
@@ -211,9 +232,17 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        abandonAudioFocus();
-        stopService(new Intent(this, MetronomeService.class));
-        AudioEngine.nativeDestroy();
+        timerHandler.removeCallbacks(timerRunnable);
+        bpmHoldHandler.removeCallbacksAndMessages(null);
+        autoLockHandler.removeCallbacksAndMessages(null);
+        if (!isChangingConfigurations()) {
+            abandonAudioFocus();
+            MetronomeService.stopExplicitly(this);
+            AudioEngine.destroy();
+        } else if (audioFocusOwner.get() == this) {
+            // Keep the focus request through Activity recreation without retaining this Activity.
+            audioFocusOwner = new WeakReference<>(null);
+        }
         super.onDestroy();
     }
 
@@ -342,15 +371,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadTimbre(int index) {
-        if (index < 0 || index >= SOUND_PACKS.length) return;
+        if (!AudioEngineRestorer.loadSoundPack(this, index)) return;
         timbreIndex = index;
         String[] names = getResources().getStringArray(R.array.timbre_names);
         String name = names[index];
-        String hiPath = SOUND_PACKS[index][0];
-        String loPath = SOUND_PACKS[index][1];
-        AudioEngine.nativeLoadSoundPack(getAssets(), hiPath, loPath);
         tvTimbreName.setText(name);
         prefsManager.setTimbre(index);
+    }
+
+    /** Retry WAV loading after a deferred native initialization succeeds. */
+    private void ensureAudioSamplesLoaded() {
+        if (soundAssetsLoaded) return;
+        soundAssetsLoaded = AudioEngineRestorer.loadDefaultSamples(this);
+        AudioEngineRestorer.loadSoundPack(this, timbreIndex);
+    }
+
+    private boolean restoreAudioEngine(double targetBpm, boolean paused) {
+        boolean restored = AudioEngineRestorer.restorePlaybackState(targetBpm, paused);
+        if (restored) ensureAudioSamplesLoaded();
+        return restored;
     }
 
     // ===== 解锁动画 =====
@@ -525,18 +564,32 @@ public class MainActivity extends AppCompatActivity {
     private void toggleStartPause() {
         if (!isRunning) {
             // START
+            if (!requestAudioFocus()) {
+                Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!restoreAudioEngine(bpm, false)) {
+                abandonAudioFocus();
+                Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
+                return;
+            }
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
-            AudioEngine.nativeStart(bpm);
-            requestAudioFocus();  // Fix #9: 请求音频焦点
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else if (isPaused) {
             // RESUME
+            if (!requestAudioFocus()) {
+                Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!restoreAudioEngine(bpm, false)) {
+                abandonAudioFocus();
+                Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
+                return;
+            }
             isPaused = false;
-            AudioEngine.nativeResume();
-            requestAudioFocus();  // Fix #9: 恢复时重新请求焦点
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
         } else {
@@ -552,11 +605,12 @@ public class MainActivity extends AppCompatActivity {
         // Fix #7: 前台服务管理
         //   Running: 启动/维持服务
         //   Paused:  更新通知状态（服务继续运行，以便快速 Resume）
-        //   (onDestroy 时统一 stopService)
+        //   (Activity 最终销毁时通过 stopExplicitly 结束服务)
         if (isRunning) {
             Intent svcIntent = new Intent(this, MetronomeService.class);
             svcIntent.putExtra("bpm", bpm);
             svcIntent.putExtra("paused", isPaused);
+            svcIntent.putExtra("running", isRunning);
             startService(svcIntent);
         }
     }
@@ -564,11 +618,23 @@ public class MainActivity extends AppCompatActivity {
     // ===== RESTART =====
 
     private void restartMetronome() {
+        if (!requestAudioFocus()) {
+            Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
+            return;
+        }
         AudioEngine.nativeStop();
+        if (!restoreAudioEngine(bpm, false)) {
+            isRunning = false;
+            isPaused = false;
+            abandonAudioFocus();
+            MetronomeService.stopExplicitly(this);
+            updateUI();
+            Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
         elapsedSeconds = 0;
         isRunning = true;
         isPaused = false;
-        AudioEngine.nativeStart(bpm);
         timerHandler.removeCallbacks(timerRunnable);
         timerHandler.postDelayed(timerRunnable, 1000);
         updateUI();
@@ -587,6 +653,7 @@ public class MainActivity extends AppCompatActivity {
         Intent svcIntent = new Intent(this, MetronomeService.class);
         svcIntent.putExtra("bpm", bpm);
         svcIntent.putExtra("paused", isPaused);
+        svcIntent.putExtra("running", isRunning);
         startService(svcIntent);
     }
 
@@ -596,44 +663,67 @@ public class MainActivity extends AppCompatActivity {
      * 请求 AUDIOFOCUS_GAIN（长期焦点，适合跑步全程）。
      * 焦点丢失时（如来电结束后对方接管）自动暂停节拍器。
      */
-    private void requestAudioFocus() {
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-        if (audioManager == null) return;
+    private boolean requestAudioFocus() {
+        if (MetronomeService.hasRecoveryAudioFocus()) {
+            MetronomeService.transferRecoveryAudioFocusToActivity();
+        }
+        if (retainedAudioFocusRequest != null) {
+            audioFocusOwner = new WeakReference<>(this);
+            return true;
+        }
+        AudioManager manager = (AudioManager) getApplicationContext()
+                .getSystemService(AUDIO_SERVICE);
+        if (manager == null) return false;
 
         AudioAttributes attrs = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build();
 
-        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        AudioFocusRequest request = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(attrs)
                 .setWillPauseWhenDucked(false)  // 跑步者需要完整音量，不自动降音
                 .setOnAudioFocusChangeListener(focusChange -> {
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
-                        // 其他 App 长期占用焦点（如导航语音结束后播放器接管）→ 暂停
-                        if (isRunning && !isPaused) {
-                            isPaused = true;
-                            AudioEngine.nativePause();
-                            timerHandler.removeCallbacks(timerRunnable);
-                            cancelAutoLock();
-                            runOnUiThread(this::updateUI);
-                            updateServiceNotification();
-                        }
-                    }
-                    // AUDIOFOCUS_LOSS_TRANSIENT / TRANSIENT_CAN_DUCK：
-                    // 短暂打断（如导航提示音），跑步场景保持节拍不暂停。
+                    MainActivity owner = audioFocusOwner.get();
+                    if (owner != null) owner.handleAudioFocusChange(focusChange);
                 }, new Handler(Looper.getMainLooper()))
                 .build();
 
-        audioManager.requestAudioFocus(audioFocusRequest);
+        audioFocusOwner = new WeakReference<>(this);
+        int result = manager.requestAudioFocus(request);
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            manager.abandonAudioFocusRequest(request);
+            audioFocusOwner = new WeakReference<>(null);
+            return false;
+        }
+        retainedAudioManager = manager;
+        retainedAudioFocusRequest = request;
+        return true;
+    }
+
+    private void handleAudioFocusChange(int focusChange) {
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS && isRunning && !isPaused) {
+            // 其他 App 长期占用焦点（如来电结束后播放器接管）→ 暂停
+            isPaused = true;
+            AudioEngine.nativePause();
+            timerHandler.removeCallbacks(timerRunnable);
+            cancelAutoLock();
+            runOnUiThread(this::updateUI);
+            updateServiceNotification();
+            abandonAudioFocus();
+        }
+        // AUDIOFOCUS_LOSS_TRANSIENT / TRANSIENT_CAN_DUCK：
+        // 短暂打断（如导航提示音），跑步场景保持节拍不暂停。
     }
 
     /** 放弃音频焦点（暂停或销毁时调用）。 */
     private void abandonAudioFocus() {
-        if (audioManager != null && audioFocusRequest != null) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-            audioFocusRequest = null;
+        if (retainedAudioManager != null && retainedAudioFocusRequest != null) {
+            retainedAudioManager.abandonAudioFocusRequest(retainedAudioFocusRequest);
         }
+        retainedAudioManager = null;
+        retainedAudioFocusRequest = null;
+        audioFocusOwner = new WeakReference<>(null);
     }
 
     // ===== 电池优化引导（Fix #8）=====

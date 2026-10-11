@@ -6,15 +6,25 @@
 
 #import <AVFoundation/AVFoundation.h>
 
+static NSString *const kAudioInterruptionRequiresPauseNotification =
+        @"AudioInterruptionRequiresPauseNotification";
+
 // ============================================================================
 // 前向声明 — AudioUnitDriver 由 AudioEngineBridge 管理生命周期
 // ============================================================================
 @interface AudioUnitDriver : NSObject
 - (instancetype)initWithBridge:(AudioEngineBridge *)bridge;
+- (BOOL)_createAudioUnit;
 - (BOOL)start;
 - (void)stop;
 - (void)setSampleRate:(int)sr;
 @property (nonatomic, readonly) int sampleRate;
+@property (nonatomic, readonly, getter=isReady) BOOL ready;
+@end
+
+@interface AudioEngineBridge ()
+- (void)_scheduleStreamRebuildRetry;
+- (void)_cancelStreamRebuildRetry;
 @end
 
 // ============================================================================
@@ -34,7 +44,11 @@ static constexpr UInt32 kOutputBus = 0;
     BOOL _isPaused;
     int _sampleRate;
     double _currentBpm;
+    BOOL _streamRecoveryRequested;
     BOOL _needsStreamRebuild;
+    BOOL _rebuildRetryScheduled;
+    NSUInteger _rebuildRetryAttempts;
+    NSUInteger _rebuildRetryGeneration;
 }
 
 // --------------------------------------------------------------------------
@@ -76,13 +90,15 @@ static constexpr UInt32 kOutputBus = 0;
     gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
     gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
-    // 创建并启动 AudioUnit 驱动（只 Open，等待 Start 才启动音频）
+    // 创建 AudioUnit 驱动（只 Open，等待 Start 才启动音频）
     _driver = [[AudioUnitDriver alloc] initWithBridge:self];
 
     NSLog(@"[AudioEngineBridge] initialized (sampleRate=%d)", _sampleRate);
 }
 
 - (void)destroyEngine {
+    [self _cancelStreamRebuildRetry];
+    _streamRecoveryRequested = NO;
     [_driver stop];
     _driver = nil;
     gEngine.Stop();
@@ -92,13 +108,25 @@ static constexpr UInt32 kOutputBus = 0;
 // --------------------------------------------------------------------------
 // 引擎生命周期
 // --------------------------------------------------------------------------
-- (void)startWithBpm:(double)bpm {
+- (BOOL)startWithBpm:(double)bpm {
     _currentBpm = bpm;
+    _streamRecoveryRequested = YES;
     gEngine.Start(bpm);
-    [_driver start];
+    if (![_driver start]) {
+        gEngine.Stop();
+        _isRunning = NO;
+        _isPaused = NO;
+        _streamRecoveryRequested = NO;
+        _needsStreamRebuild = YES;
+        [self handleAudioRouteChange];
+        return NO;
+    }
     _isRunning = YES;
     _isPaused = NO;
+    _needsStreamRebuild = NO;
+    [self _cancelStreamRebuildRetry];
     NSLog(@"[AudioEngineBridge] start(%.1f)", bpm);
+    return YES;
 }
 
 - (void)stop {
@@ -106,6 +134,8 @@ static constexpr UInt32 kOutputBus = 0;
     [_driver stop];
     _isRunning = NO;
     _isPaused = NO;
+    _streamRecoveryRequested = NO;
+    [self _cancelStreamRebuildRetry];
     NSLog(@"[AudioEngineBridge] stop");
 }
 
@@ -113,14 +143,94 @@ static constexpr UInt32 kOutputBus = 0;
     gEngine.Pause();
     [_driver stop];
     _isPaused = YES;
+    _streamRecoveryRequested = NO;
+    [self _cancelStreamRebuildRetry];
     NSLog(@"[AudioEngineBridge] pause");
 }
 
-- (void)resume {
+- (BOOL)resume {
+    _streamRecoveryRequested = YES;
     gEngine.Resume();
-    [_driver start];
+    if (![_driver start]) {
+        gEngine.Pause();
+        _isPaused = YES;
+        _needsStreamRebuild = YES;
+        [self handleAudioRouteChange];
+        return NO;
+    }
     _isPaused = NO;
+    _needsStreamRebuild = NO;
+    [self _cancelStreamRebuildRetry];
     NSLog(@"[AudioEngineBridge] resume");
+    return YES;
+}
+
+- (void)handleAudioInterruptionBegan {
+    if (_isRunning && !_isPaused) {
+        [_driver stop];
+        [self _cancelStreamRebuildRetry];
+    }
+}
+
+- (void)handleAudioInterruptionEndedShouldResume:(BOOL)shouldResume {
+    if (!_isRunning || _isPaused) return;
+    if (!shouldResume) {
+        gEngine.Pause();
+        [_driver stop];
+        _isPaused = YES;
+        _streamRecoveryRequested = NO;
+        [self _cancelStreamRebuildRetry];
+        [[NSNotificationCenter defaultCenter]
+                postNotificationName:kAudioInterruptionRequiresPauseNotification
+                              object:self];
+        return;
+    }
+    if (![_driver start]) {
+        _needsStreamRebuild = YES;
+        [self handleAudioRouteChange];
+    }
+}
+
+- (void)handleAudioRouteChange {
+    const BOOL shouldResume = _isRunning && !_isPaused;
+    [_driver stop];
+    _driver = nil;
+    _driver = [[AudioUnitDriver alloc] initWithBridge:self];
+    if (_driver.ready && _driver.sampleRate > 0) [self setSampleRate:_driver.sampleRate];
+
+    if (!_driver.ready || (shouldResume && ![_driver start])) {
+        _needsStreamRebuild = YES;
+        [self _scheduleStreamRebuildRetry];
+    } else {
+        _needsStreamRebuild = NO;
+        _rebuildRetryAttempts = 0;
+    }
+}
+
+- (void)_scheduleStreamRebuildRetry {
+    if (!_needsStreamRebuild || !_streamRecoveryRequested || _rebuildRetryScheduled) return;
+    _rebuildRetryScheduled = YES;
+    const NSUInteger retryGeneration = ++_rebuildRetryGeneration;
+    const NSUInteger shift = MIN(_rebuildRetryAttempts, (NSUInteger)5);
+    const NSTimeInterval delay = MIN((NSTimeInterval)(1U << shift), 30.0);
+    if (_rebuildRetryAttempts < 6) ++_rebuildRetryAttempts;
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                 (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (retryGeneration != self->_rebuildRetryGeneration) return;
+        self->_rebuildRetryScheduled = NO;
+        if (self->_needsStreamRebuild && self->_streamRecoveryRequested) {
+            [self handleAudioRouteChange];
+        }
+    });
+}
+
+- (void)_cancelStreamRebuildRetry {
+    ++_rebuildRetryGeneration;
+    _rebuildRetryScheduled = NO;
+    _rebuildRetryAttempts = 0;
+    _needsStreamRebuild = NO;
 }
 
 // --------------------------------------------------------------------------
@@ -233,22 +343,6 @@ static constexpr UInt32 kOutputBus = 0;
 // --------------------------------------------------------------------------
 // 流重建
 // --------------------------------------------------------------------------
-- (BOOL)needsStreamRebuild { return _needsStreamRebuild; }
-
-- (void)rebuildStream {
-    _needsStreamRebuild = NO;
-    [self destroyEngine];
-    [self initializeEngine];
-    if (_isRunning && !_isPaused) {
-        [self startWithBpm:_currentBpm];
-    }
-}
-
-// 供 AudioUnitDriver 调用的流异常标记
-- (void)_markStreamError {
-    _needsStreamRebuild = YES;
-}
-
 @end
 
 // ============================================================================
@@ -280,6 +374,7 @@ static OSStatus RenderCallback(
     AudioUnit _audioUnit;
     AudioEngineBridge *_bridge;
     int _sampleRate;
+    BOOL _ready;
 }
 
 - (instancetype)initWithBridge:(AudioEngineBridge *)bridge {
@@ -287,12 +382,14 @@ static OSStatus RenderCallback(
     if (self) {
         _bridge = bridge;
         _sampleRate = 48000;
-        [self _createAudioUnit];
+        _ready = [self _createAudioUnit];
+        if (!_ready) _sampleRate = 0;
     }
     return self;
 }
 
 - (int)sampleRate { return _sampleRate; }
+- (BOOL)isReady { return _ready; }
 
 // --------------------------------------------------------------------------
 // 创建 RemoteIO AudioUnit
@@ -389,7 +486,7 @@ static OSStatus RenderCallback(
 // Start / Stop
 // --------------------------------------------------------------------------
 - (BOOL)start {
-    if (!_audioUnit) return NO;
+    if (!_ready || !_audioUnit) return NO;
     OSStatus status = AudioOutputUnitStart(_audioUnit);
     if (status != noErr) {
         NSLog(@"[AudioUnit] ERROR: AudioOutputUnitStart failed: %d", (int)status);

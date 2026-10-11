@@ -195,6 +195,8 @@
 
 **目标**：iOS 端实现相同功能和 UI，直接复用 C++ Core 源码。
 
+> **状态说明（2026-10）**：iOS target、SwiftUI 界面、Obj-C++/RemoteIO bridge、共享 C++ Core，以及 AudioSession/锁屏基础控制已在代码中实现。下面的未勾选项是原始计划清单，尚未与当前代码同步；不要据此判断这些模块尚不存在。设备验证和未实现的细项仍需单独核对。
+
 ### 4.1 iOS 项目初始化
 - [ ] 创建 Xcode 项目（SwiftUI App）
 - [ ] 配置 C++ 源码引用

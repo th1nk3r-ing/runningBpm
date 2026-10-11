@@ -136,8 +136,8 @@ TickAnalysis AnalyzeTicks(const float* audio, int numFrames, int sampleRate,
     return result;
 }
 
-// Verify that sample-rate and Start requests are applied by the callback thread,
-// and that every Start resets the first-tick phase using the latest settings.
+// Verify the first-tick phase after sample-rate and Start requests.
+// This deterministic check does not prove thread ownership; the concurrent test needs TSan for that.
 bool TestDeferredClockUpdates() {
     constexpr float kImpulse[] = {1.0f};
     AudioEngine engine;
@@ -174,9 +174,14 @@ bool TestDeferredClockUpdates() {
 // Run this test under ThreadSanitizer to verify Clock remains callback-thread-owned.
 bool TestConcurrentClockControl() {
     AudioEngine engine;
+    constexpr float tickA[] = {0.2f, -0.1f, 0.05f, 0.0f};
+    constexpr float tickB[] = {0.3f, -0.2f, 0.1f, 0.0f, 0.05f, 0.0f};
+    constexpr float chime[] = {0.1f, 0.05f, 0.0f, -0.02f};
     std::atomic<bool> render{true};
     std::atomic<bool> finiteOutput{true};
     std::atomic<int> callbackCount{0};
+    engine.LoadSoundPack(tickA, 4, tickB, 6);
+    engine.LoadChimeSamples(chime, 4);
 
     std::thread callbackThread([&] {
         float output[128];
@@ -198,6 +203,10 @@ bool TestConcurrentClockControl() {
     for (int i = 0; i < 20000; ++i) {
         engine.SetSampleRate((i & 1) ? 44100 : 48000);
         engine.Start(120.0 + static_cast<double>(i % 61));
+        if (i % 100 == 0) {
+            engine.LoadSoundPack(tickB, 6, tickA, 4);
+        }
+        if (i % 7 == 0) engine.TriggerChime();
         if (i % 3 == 0) {
             engine.Pause();
             engine.Resume();
@@ -209,10 +218,46 @@ bool TestConcurrentClockControl() {
     render.store(false, std::memory_order_relaxed);
     callbackThread.join();
     engine.Stop();
-    const bool passed = finiteOutput.load(std::memory_order_relaxed);
-    printf("Concurrent clock control: callbacks=%d, finite output: %s\n",
-           callbackCount.load(std::memory_order_relaxed), passed ? "PASS" : "FAIL");
+    engine.SetSampleRate(24000);
+    engine.Start(60.0);
+    std::vector<float> finalBeat(24000, 0.0f);
+    engine.OnAudioCallback(finalBeat.data(), static_cast<int>(finalBeat.size()));
+    int firstTick = -1;
+    for (size_t i = 0; i < finalBeat.size(); ++i) {
+        if (finalBeat[i] != 0.0f) {
+            firstTick = static_cast<int>(i);
+            break;
+        }
+    }
+    engine.Stop();
+
+    const bool finalSettingsApplied = firstTick == 23999;
+    const bool passed = finiteOutput.load(std::memory_order_relaxed) && finalSettingsApplied;
+    printf("Concurrent clock control: callbacks=%d, finite output=%s, final tick=%d (expected 23999): %s\n",
+           callbackCount.load(std::memory_order_relaxed),
+           finiteOutput.load(std::memory_order_relaxed) ? "yes" : "no",
+           firstTick, passed ? "PASS" : "FAIL");
     return passed;
+}
+
+bool TestPauseDropsPendingChime() {
+    AudioEngine engine;
+    constexpr float chime[] = {0.5f, 0.25f, 0.0f};
+    engine.LoadChimeSamples(chime, 3);
+    engine.SetChimeVolume(1.0);
+    engine.Start(120.0);
+    engine.TriggerChime();
+    engine.Pause();
+    engine.TriggerChime();  // Triggers while paused are ignored.
+    engine.Resume();
+
+    float output[8]{};
+    engine.OnAudioCallback(output, 8);
+    bool silent = true;
+    for (float sample : output) silent = silent && sample == 0.0f;
+    engine.Stop();
+    printf("Pause drops pending chime: %s\n", silent ? "PASS" : "FAIL");
+    return silent;
 }
 
 // ===== 主测试 =====
@@ -220,6 +265,7 @@ bool TestConcurrentClockControl() {
 int main() {
     const bool clockUpdatesOk = TestDeferredClockUpdates();
     const bool concurrentClockControlOk = TestConcurrentClockControl();
+    const bool pauseDropsChimeOk = TestPauseDropsPendingChime();
     constexpr int kSampleRate = 48000;
     constexpr double kBPM = 150.0;
     constexpr int kDurationSec = 10;
@@ -285,7 +331,7 @@ int main() {
            analysis.maxJitter, jitterOk ? "PASS" : "FAIL");
 
     printf("\n=== %s ===\n",
-           (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk)
+           (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk && pauseDropsChimeOk)
                ? "ALL PASS" : "FAILURES DETECTED");
-    return (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk) ? 0 : 1;
+    return (countOk && jitterOk && clockUpdatesOk && concurrentClockControlOk && pauseDropsChimeOk) ? 0 : 1;
 }

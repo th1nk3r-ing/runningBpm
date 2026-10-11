@@ -161,9 +161,12 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
               ├── tick_hi.wav
               ├── tick_lo.wav
               └── chime.wav
-/ios  （Phase 4，TODO：待实现）
-  ├── AudioEngineBridge.mm   // Obj-C++ 桥接，持有 C++ AudioEngine 实例
-  ├── AudioUnit.mm           // RemoteIO AudioUnit 回调驱动
-  └── RemoteCmd.swift        // MPRemoteCommandCenter 锁屏控制
+/ios
+  ├── project.yml                         // XcodeGen 工程配置及 WAV 资源同步
+  └── RunBeatPro
+        ├── App/                           // SwiftUI 入口、AudioSession 配置
+        ├── Bridge/AudioEngineBridge.mm    // Obj-C++、共享 C++ Core、RemoteIO
+        ├── Model/AppState.swift           // 应用状态与音频控制
+        ├── Service/                       // 偏好、触觉、锁屏命令
+        └── View/                          // SwiftUI 界面组件
 ```
-

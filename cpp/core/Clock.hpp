@@ -8,6 +8,7 @@
  * 采用 countdown 方式：每采样递减 framesToNextTick_，
  * 归零时触发 tick 并加上 framesPerTick_。
  * 此方式将浮点误差约束在每个 tick 内，不跨 tick 累积。
+ * 数学上等价于相位累加器 phase += Δφ；framesPerTick = 1 / Δφ。
  *
  * 核心公式：
  *   framesPerTick  = sampleRate * 60 / BPM

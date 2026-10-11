@@ -147,18 +147,40 @@ final class AppState {
 
     // MARK: - Lifecycle
 
+    private var audioInterruptionObserver: NSObjectProtocol?
+
     init() {
         loadPersistedState()
+        audioInterruptionObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("AudioInterruptionRequiresPauseNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isRunning, !self.isPaused else { return }
+            self.isPaused = true
+            RemoteCommandManager.shared.updateNowPlaying(
+                bpm: self.bpm,
+                elapsed: self.elapsedSeconds,
+                isPaused: true
+            )
+            self.cancelAutoLock()
+        }
+    }
+
+    deinit {
+        if let audioInterruptionObserver {
+            NotificationCenter.default.removeObserver(audioInterruptionObserver)
+        }
     }
 
     // MARK: - Engine Control
 
     func start() {
         guard !isRunning else { return }
+        guard AudioEngineBridge.shared().start(withBpm: bpm) else { return }
         isRunning = true
         isPaused = false
         elapsedSeconds = 0
-        AudioEngineBridge.shared().start(withBpm: bpm)
         RemoteCommandManager.shared.updateNowPlaying(
             bpm: bpm,
             elapsed: elapsedSeconds,
@@ -181,8 +203,8 @@ final class AppState {
 
     func resume() {
         guard isRunning && isPaused else { return }
+        guard AudioEngineBridge.shared().resume() else { return }
         isPaused = false
-        AudioEngineBridge.shared().resume()
         RemoteCommandManager.shared.updateNowPlaying(
             bpm: bpm,
             elapsed: elapsedSeconds,
@@ -202,10 +224,16 @@ final class AppState {
 
     func restart() {
         AudioEngineBridge.shared().stop()
+        guard AudioEngineBridge.shared().start(withBpm: bpm) else {
+            isRunning = false
+            isPaused = false
+            cancelAutoLock()
+            RemoteCommandManager.shared.clearNowPlaying()
+            return
+        }
         elapsedSeconds = 0
         isRunning = true
         isPaused = false
-        AudioEngineBridge.shared().start(withBpm: bpm)
         RemoteCommandManager.shared.updateNowPlaying(
             bpm: bpm,
             elapsed: elapsedSeconds,
@@ -230,23 +258,17 @@ final class AppState {
         guard index >= 0, index < Self.TIMBRE_PATHS.count else { return }
         timbreIndex = index
         let paths = Self.TIMBRE_PATHS[index]
-        let hiURL = Bundle.main.url(forResource: paths.hi.replacingOccurrences(of: ".wav", with: ""),
-                                     withExtension: "wav",
-                                     subdirectory: "sounds/\(paths.hi.hasPrefix("sounds/") ? "" : "")")
-        let loURL = Bundle.main.url(forResource: paths.lo.replacingOccurrences(of: ".wav", with: ""),
-                                     withExtension: "wav",
-                                     subdirectory: "sounds/\(paths.lo.hasPrefix("sounds/") ? "" : "")")
-        // 简化路径处理 — 直接使用 Bundle path
-        let hiPath = Bundle.main.path(forResource: (paths.hi as NSString).deletingPathExtension,
-                                       ofType: "wav",
-                                       inDirectory: nil) ?? Bundle.main.path(forResource: "tick_hi", ofType: "wav")
-        let loPath = Bundle.main.path(forResource: (paths.lo as NSString).deletingPathExtension,
-                                       ofType: "wav",
-                                       inDirectory: nil) ?? Bundle.main.path(forResource: "tick_lo", ofType: "wav")
+        // Xcode copies these WAVs to the bundle root; resolve their basename, not
+        // the Android-style "sounds/..." asset path stored in TIMBRE_PATHS.
+        let hiName = ((paths.hi as NSString).lastPathComponent as NSString).deletingPathExtension
+        let loName = ((paths.lo as NSString).lastPathComponent as NSString).deletingPathExtension
+        let hiURL = Bundle.main.url(forResource: hiName, withExtension: "wav")
+                ?? Bundle.main.url(forResource: "tick_hi", withExtension: "wav")
+        let loURL = Bundle.main.url(forResource: loName, withExtension: "wav")
+                ?? Bundle.main.url(forResource: "tick_lo", withExtension: "wav")
 
-        if let hiP = hiPath, let loP = loPath {
-            AudioEngineBridge.shared().loadTickHi(withFileURL: NSURL.fileURL(withPath: hiP),
-                                                   tickLo: NSURL.fileURL(withPath: loP))
+        if let hiURL, let loURL {
+            AudioEngineBridge.shared().loadTickHi(withFileURL: hiURL, tickLo: loURL)
         }
     }
 

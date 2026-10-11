@@ -13,10 +13,12 @@ int main() {
 
     // Test 1: 小信号近似直通（tanh(x) ≈ x for |x| ≪ 1）
     float small[kFrames] = {0.01f, 0.02f, 0.05f, -0.01f, -0.03f, 0.0f, 0.001f, -0.005f};
+    float smallOriginal[kFrames];
+    for (int i = 0; i < kFrames; ++i) smallOriginal[i] = small[i];
     Limiter::Process(small, kFrames);
     bool test1 = true;
     for (int i = 0; i < kFrames; ++i) {
-        if (std::abs(small[i] - 0.0f) > 0.06f) test1 = false;  // 误差在 1% 以内
+        if (std::abs(small[i] - smallOriginal[i]) > 0.001f) test1 = false;
     }
     printf("Test 1 (small signal ~passthrough): %s\n", test1 ? "PASS" : "FAIL");
 

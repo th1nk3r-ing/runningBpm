@@ -10,6 +10,18 @@ def getGitCommit() {
     }
 }
 
+def releaseVersionCode = (project.findProperty('versionCode') ?: '1').toString().toInteger()
+def releaseStoreFilePath = System.getenv('RUNBEAT_RELEASE_STORE_FILE')
+def releaseStorePassword = System.getenv('RUNBEAT_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = System.getenv('RUNBEAT_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('RUNBEAT_RELEASE_KEY_PASSWORD')
+def releaseSigningConfigured = releaseStoreFilePath && releaseStorePassword &&
+        releaseKeyAlias && releaseKeyPassword
+
+if (releaseStoreFilePath && !releaseSigningConfigured) {
+    throw new GradleException('RUNBEAT_RELEASE_STORE_FILE requires all RUNBEAT_RELEASE_* signing values.')
+}
+
 android {
     namespace 'com.runbeat.pro'
     compileSdk 34
@@ -20,7 +32,7 @@ android {
         applicationId "com.runbeat.pro"
         minSdk 26
         targetSdk 34
-        versionCode 1
+        versionCode releaseVersionCode
         versionName "1.0"
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm:ss')}\""
         buildConfigField "String", "GIT_COMMIT", "\"${getGitCommit()}\""
@@ -29,18 +41,32 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile file(releaseStoreFilePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            // Without release secrets, build an unsigned APK so local minify checks still work.
+            if (releaseSigningConfigured) signingConfig signingConfigs.release
         }
     }
 
     android.applicationVariants.configureEach { variant ->
         variant.outputs.configureEach {
-            outputFileName = "RunBeatPro-v${defaultConfig.versionName}-${getGitCommit()}-${variant.buildType.name}.apk"
+            def unsignedSuffix = variant.buildType.name == 'release' && !releaseSigningConfigured
+                    ? '-unsigned' : ''
+            outputFileName = "RunBeatPro-v${defaultConfig.versionName}-${getGitCommit()}-${variant.buildType.name}${unsignedSuffix}.apk"
         }
     }
 
