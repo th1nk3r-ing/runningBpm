@@ -206,14 +206,8 @@ struct WavGenerator {
     }
 
     /**
-     * 生成清脆的节拍 click —— 经过精心调音的"塑料/木块"敲击声。
-     *
-     * 设计要点：
-     *   1) 短促尖锐：总长 30~45ms，强拍稍长，弱拍更短；
-     *   2) 高频主导：强拍 ~3.2kHz，弱拍 ~2.4kHz，跑步耳机/外放都易听；
-     *   3) 三段式包络：0.4ms 淡入（消除数字啪声）→ 主体快速指数衰减 → 末尾 2ms 线性淡出；
-     *   4) 峰值控制 ≤ 0.55，避免后级 Limiter (tanh) 压缩造成失真；
-     *   5) 极轻微高斯噪声"咔哒"（< 1ms）增加颗粒感，但不抢戏。
+     * 生成"塑料/木块"敲击 click：强拍 ~3.2kHz/45ms，弱拍 ~2.4kHz/30ms，峰值 ≤0.55。
+     * 三段包络（淡入→指数衰减→淡出）消除数字啪声与截断咔声。
      *
      * @param accent  true=强拍（更高频 + 稍长 + 略大）；false=弱拍
      */
@@ -222,7 +216,7 @@ struct WavGenerator {
         const float fundamental = accent ? 3200.0f : 2400.0f;
         const float decay       = accent ? 95.0f   : 130.0f;
         const float clickAmp    = accent ? 0.55f   : 0.42f;
-        const float noiseLenSec = 0.0008f;   // 仅 0.8ms 噪声瞬态
+        const float noiseLenSec = 0.0008f;
         const float noiseAmp    = accent ? 0.18f : 0.14f;
 
         const int length    = static_cast<int>(sampleRate * durationSec);
@@ -242,7 +236,7 @@ struct WavGenerator {
             data[i] = tone * clickAmp * env;
         }
 
-        // 极短噪声瞬态（仅前 0.8ms）— 增加 "啪" 的颗粒，但不刺耳
+        // 极短噪声瞬态（仅前 0.8ms）
         unsigned seed = accent ? 1337u : 7331u;
         for (int i = 0; i < noiseLen && i < length; ++i) {
             seed = seed * 1664525u + 1013904223u;
@@ -251,17 +245,16 @@ struct WavGenerator {
             data[i] += n * noiseAmp * ne;
         }
 
-        // Attack 淡入（消除采样起点的数字突变）
+        // Attack 淡入 / 末尾淡出（消除数字突变与截断咔声）
         for (int i = 0; i < fadeIn && i < length; ++i) {
             data[i] *= static_cast<float>(i) / fadeIn;
         }
 
-        // 末尾淡出（消除截断"咔"声）
         for (int i = 0; i < fadeOut && (length - 1 - i) >= 0; ++i) {
             data[length - 1 - i] *= static_cast<float>(i) / fadeOut;
         }
 
-        // 安全裁剪到 ±0.6（远低于 Limiter 拐点，保留瞬态线性度）
+        // 裁剪到 ±0.6，远低于 Limiter 拐点
         for (int i = 0; i < length; ++i) {
             if (data[i] > 0.6f)  data[i] = 0.6f;
             if (data[i] < -0.6f) data[i] = -0.6f;

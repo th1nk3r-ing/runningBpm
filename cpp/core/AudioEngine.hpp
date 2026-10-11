@@ -11,8 +11,6 @@
 /**
  * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为完整 Pipeline。
  *
- * 注意：混音步骤（tick + chime）在 OnAudioCallback 中内联实现，未使用独立的 Mixer 类。
- *
  * 线程模型：
  *   - 控制线程（Main/JNI）：Start/Stop/Pause/Resume/SetBpm/SetVolume/TriggerChime
  *   - 音频线程（AAudio callback）：OnAudioCallback（必须实时安全）
@@ -24,7 +22,7 @@
  *   2. tickPlayer.Play() / .ReadOne()     → tick 采样（hi 或 lo 由 accent 决定）
  *   3. chimePlayer.ReadOne()              → chime 采样
  *   4. 内联混音：out[i] = tick * tickGain + chime * chimeGain
- *   5. Limiter::ProcessHard()             → 硬限幅（±0.97），保留 click 瞬态线性度
+ *   5. Limiter::ProcessHard()             → 硬限幅（±0.97）
  */
 class AudioEngine {
 public:
@@ -148,17 +146,14 @@ public:
         // 一次性加载参数（relaxed 足够，单生产者单消费者）
         double bpm = bpm_.load(std::memory_order_relaxed);
         if (std::abs(bpm - clock_.GetBPM()) > 1e-9) {
-            // 运行中调整 BPM：保持当前相位百分比连续，避免拍子提前/推迟。
-            // Start() 时已经显式 SetBPM 重置相位，这里只处理"运行中"的微调。
-            clock_.SetBPMPreservePhase(bpm);
+            clock_.SetBPMPreservePhase(bpm);  // 运行中调 BPM：保相位连续
         }
         float outGain = static_cast<float>(outputGain_.load(std::memory_order_relaxed));
         float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed)) * outGain;
         float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed)) * outGain;
         bool accent = accentOn_.load(std::memory_order_relaxed);
 
-        // Per-sample 处理：始终推进所有 player（让长尾自然播放完），
-        // 仅在 tick 触发时启动对应的 player。
+        // 每帧推进两个 player 让长尾自然结束，只混入 accent 对应的一路。
         // 注意：accent 关闭时，所有 tick 触发都使用 tickLoPlayer_（弱拍/单一音色）。
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
@@ -168,8 +163,6 @@ public:
                     tickLoPlayer_.Play();
                 }
             }
-            // 始终推进两个 player（确保 voice 指针能跑到末尾自然停止），
-            // 但只将当前 accent 对应的 player 输出参与混音，避免"残留长尾"叠加。
             float hiSample  = tickPlayer_.ReadOne();
             float loSample  = tickLoPlayer_.ReadOne();
             float tickSample = accent ? hiSample : loSample;
@@ -177,8 +170,7 @@ public:
             out[i] = tickSample * tickGain + chimeSample * chimeGain;
         }
 
-        // 使用硬限幅（只在峰值 > 0.97 时介入），保持瞬态线性度。
-        // 之前的 tanh 软限幅在 |x|>0.3 时已开始压缩，会让 click 听起来"闷"。
+        // 硬限幅：仅峰值 > ±0.97 时介入，保留 click 瞬态
         Limiter::ProcessHard(out, numFrames);
     }
 
@@ -196,12 +188,10 @@ private:
     // 仅由 OnAudioCallback 所在线程访问。
     std::uint64_t appliedStartGeneration_ = 0;
     int appliedSampleRate_ = 48000;
-    // 默认 tick 音量略降到 0.7：click 波形峰值约 0.55，乘 0.7 后峰值 ~0.39，
-    // 远低于硬限幅 0.97 阈值，可保持瞬态完全线性。
-    std::atomic<double> tickGain_{0.7};
+    std::atomic<double> tickGain_{0.7};  // 预留限幅余量
     std::atomic<double> chimeGain_{0.5};
     std::atomic<bool> accentOn_{true};
-    // 输出总倍率（x1/x2/x3 等），叠加在 tickGain/chimeGain 之上
+    // 输出总倍率，叠加在 tick/chime 增益之上
     std::atomic<double> outputGain_{1.0};
 
     std::atomic<State> state_{State::Idle};

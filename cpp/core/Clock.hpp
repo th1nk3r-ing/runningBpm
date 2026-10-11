@@ -9,9 +9,6 @@
  * 归零时触发 tick 并加上 framesPerTick_。
  * 此方式将浮点误差约束在每个 tick 内，不跨 tick 累积。
  *
- * 注意：与相位累加器（phase += deltaPhi；phase >= 1.0 时触发）在数学上等价，
- *       framesPerTick = 1/deltaPhi（单位：帧），但直接以帧数倒计数更直观易验证。
- *
  * 核心公式：
  *   framesPerTick  = sampleRate * 60 / BPM
  *   每采样点 framesToNextTick_ -= 1.0
@@ -51,11 +48,7 @@ public:
 
     /**
      * 设置 BPM 但保持当前相位百分比连续 — 运行中调整 BPM 必用此函数。
-     * 思路：当前 countdown 在旧 framesPerTick 中的"已走百分比"在新 framesPerTick
-     * 中保持不变，避免因重置 countdown 导致的"提前一拍"听感。
-     *
-     * 例：旧 fpt=24000、当前 framesToNextTick=6000（已走 75%）→ 新 fpt=20000
-     *     则新 framesToNextTick = 20000 * (6000/24000) = 5000（仍为 75%）
+     * 新 framesToNextTick_ = 新 fpt × (旧剩余 / 旧 fpt)，避免下一拍提前/推迟。
      */
     void SetBPMPreservePhase(double bpm) noexcept {
         if (bpm <= 0.0 || sampleRate_ <= 0) return;

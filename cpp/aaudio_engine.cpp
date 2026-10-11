@@ -75,8 +75,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
     if (!mgr) return JNI_FALSE;
 
-    // 使用 AAudio 流实际采样率（nativeInit 中 OpenStream 已确定），
-    // 确保 WAV 重采样到与引擎一致的采样率，避免音高/速度漂移。
+    // 用流实际采样率重采样，避免音高/速度漂移
     int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
     std::vector<float> samples;
 
@@ -106,8 +105,8 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
 
 // ========== AAudio 回调 ==========
 
-// 复用的 mono 临时缓冲（音频线程独占）。
-// nativeInit 中预 reserve 4096 帧；callback 内用 capacity 判断，避免 realloc（实时安全）。
+// 复用的 mono 临时缓冲（音频线程独占，nativeInit 中预 reserve 4096 帧；
+// callback 内用 capacity 判断，确保不触发 heap 分配）。
 static std::vector<float> gMonoBuf;
 
 static aaudio_data_callback_result_t dataCallback(
@@ -118,7 +117,6 @@ static aaudio_data_callback_result_t dataCallback(
         gEngine.OnAudioCallback(out, numFrames);
     } else {
         // 多通道（一般为 stereo）：先生成 mono，再交错写入每个通道。
-        // 用 capacity 判断，避免 callback 内发生 heap 分配（nativeInit 已 reserve 4096 帧）。
         if (gMonoBuf.capacity() < static_cast<size_t>(numFrames)) {
             // 超出预分配容量（设备 burst size 异常大），紧急扩容 — 正常情况不触发
             gMonoBuf.reserve(static_cast<size_t>(numFrames));
@@ -138,9 +136,8 @@ static aaudio_data_callback_result_t dataCallback(
 
 static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_result_t error) {
     LOGI("stream error: %d", error);
+    // 不可在 error callback 内调用任何 AAudio API，只设标志位由主线程轮询重建
     if (error == AAUDIO_ERROR_DISCONNECTED) {
-        // 不可在此回调内调用任何 AAudio API，只设标志位
-        // 主线程通过 nativeRebuildStreamIfNeeded 轮询并重建
         gStreamError.store(true, std::memory_order_relaxed);
         LOGI("stream disconnected — flagged for rebuild");
     }
@@ -161,10 +158,7 @@ static bool OpenStream() {
     // 基础配置
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-    // 强烈建议固定 mono + 48kHz：
-    //   1) 我们的引擎按 mono per-sample 写出，必须保证设备 channel=1，否则
-    //      多通道的后半 buffer 会读到未初始化内存，产生明显噪音/失真；
-    //   2) 固定 48kHz 与样本生成一致，避免 AAudio 内部重采样和 click 音高/速度漂移。
+    // 固定 mono + 48kHz：多通道后半 buffer 会读到未初始化内存，且避免 AAudio 重采样漂移
     AAudioStreamBuilder_setChannelCount(builder, 1);
     AAudioStreamBuilder_setSampleRate(builder, 48000);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
@@ -220,17 +214,14 @@ static void CloseStream() {
  */
 static void RebuildStream() {
     LOGI("RebuildStream: closing dead stream");
-    CloseStream();                 // 关闭旧流（已断开，stop/close 会快速返回）
+    CloseStream();
 
-    if (!OpenStream()) {           // 重新打开
+    if (!OpenStream()) {
         LOGE("RebuildStream: OpenStream failed");
         return;
     }
 
-    // Running 或 Paused 时均重启流：
-    //   Running → 立即恢复音频输出
-    //   Paused  → 流进入 STARTED，但引擎在 OnAudioCallback 里输出静音，以便 Resume 零延迟
-    //   Idle    → 仅 Open，等用户按 START
+    // Running/Paused 均重启流（Paused 时引擎输出静音，Resume 零延迟）；Idle 只 Open
     AudioEngine::State s = gEngine.GetState();
     if (s == AudioEngine::State::Running || s == AudioEngine::State::Paused) {
         aaudio_result_t result = AAudioStream_requestStart(gStream);
@@ -250,9 +241,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/) {
     LOGI("nativeInit");
 
-    // 打开 AAudio 流，得到设备实际采样率，再按此采样率生成样本。
-    // 注意：此处只 Open 不 Start，流在 OPEN 状态等待 nativeStart()。
-    // 避免 App 启动时就独占音频设备（违反 Android 音频焦点规范）。
+    // 只 Open 不 Start：避免 App 启动时就抢占音频焦点
     OpenStream();
 
     std::vector<float> tickHi, tickLo;
@@ -260,9 +249,7 @@ Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/)
     gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
     gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
-    // 预分配 mono 混合缓冲区（4096 帧）：reserve 设置 capacity，
-    // 使 dataCallback 中的 resize 不触发 heap 分配（实时安全要求）。
-    gMonoBuf.reserve(4096);
+    gMonoBuf.reserve(4096);  // 覆盖常规 burst size，保证 callback 无 heap 分配
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -275,7 +262,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
     LOGI("nativeStart(%.1f)", bpm);
     gEngine.Start(static_cast<double>(bpm));
-    // 启动 AAudio 流（OPEN/STOPPED/PAUSED → STARTED）
     if (gStream) {
         aaudio_result_t r = AAudioStream_requestStart(gStream);
         if (r != AAUDIO_OK) LOGE("nativeStart: requestStart failed: %d", r);
@@ -286,7 +272,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeStop(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeStop");
     gEngine.Stop();
-    // 停止 AAudio 流（STARTED → STOPPED），释放独占模式的音频设备占用。
     if (gStream) {
         aaudio_result_t r = AAudioStream_requestStop(gStream);
         if (r != AAUDIO_OK) LOGE("nativeStop: requestStop failed: %d", r);
@@ -297,7 +282,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativePause(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativePause");
     gEngine.Pause();
-    // 暂停 AAudio 流（STARTED → PAUSED），暂停期间不占用 CPU 和音频设备。
     if (gStream) {
         aaudio_result_t r = AAudioStream_requestPause(gStream);
         if (r != AAUDIO_OK) LOGE("nativePause: requestPause failed: %d", r);
@@ -308,7 +292,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeResume");
     gEngine.Resume();
-    // 从 PAUSED/STOPPED 状态重新启动 AAudio 流
     if (gStream) {
         aaudio_result_t r = AAudioStream_requestStart(gStream);
         if (r != AAUDIO_OK) LOGE("nativeResume: requestStart failed: %d", r);
@@ -349,9 +332,6 @@ Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass 
 
 /**
  * 加载成对音色（强拍 + 弱拍）。
- * 替代旧的 pitch-shift 派生方案：直接使用两个独立的 WAV 资源，
- * 保留各自的瞬态特征，适用于打击乐采样（BassDrum1/2、Clap1/2 等）。
- *
  * 若 tickLoPath 为空（null/空串），则两路都使用 tickHiPath（单音色）。
  */
 extern "C" JNIEXPORT void JNICALL
@@ -365,8 +345,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
     const char* cHi = env->GetStringUTFChars(tickHiPath, nullptr);
     LOGI("nativeLoadSoundPack: hi=%s", cHi);
 
-    // 使用 AAudio 流实际采样率（与 nativeLoadWavAssets 保持一致），
-    // 避免蓝牙等非 48kHz 设备上音色音高/速度漂移。
+    // 用流实际采样率，避免非 48k 设备（蓝牙）音高漂移
     int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
 
     std::vector<float> hiSamples;
@@ -390,8 +369,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
     }
 
     if (!loOk || loSamples.empty()) {
-        // 弱拍样本缺失或加载失败：复用强拍（单音色音色包）
-        loSamples = hiSamples;
+        loSamples = hiSamples;  // 弱拍缺失：复用强拍（单音色）
     }
 
     gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
