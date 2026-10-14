@@ -100,6 +100,12 @@ public class AudioEngine {
     // （nativeGetXRunCount 已删除：JNI 入口曾存在但无 Java 调用者；
     //  真正的 XRun 上报见 doc/target.md。）
 
+    /**
+     * 告知 native 侧「当前是否有其它音频在播放」：true → 固定以 SHARED 开流与系统混音共存，
+     * false → 维持 EXCLUSIVE 优先、失败回退 SHARED。需在开流前调用。
+     */
+    public static native void nativeSetMixWithOthers(boolean mixWithOthers);
+
     /** 检查 AAudio 流是否因设备断开而死亡，如是则重建。由主线程定时调用。*/
     public static native boolean nativeRebuildStreamIfNeeded();
 }

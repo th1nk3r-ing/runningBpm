@@ -15,7 +15,6 @@
     <string name="msg_unlocked">已解锁</string>
     <string name="msg_auto_locked">已自动锁定</string>
     <string name="msg_audio_unavailable">音频设备启动失败，请重试</string>
-    <string name="msg_audio_focus_denied">当前无法获取音频焦点</string>
     <string name="dialog_theme_title">主题色</string>
     <string name="dialog_timbre_title">选择音色</string>
     <string name="btn_cancel">取消</string>

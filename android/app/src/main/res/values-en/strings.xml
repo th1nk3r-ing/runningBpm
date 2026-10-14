@@ -15,7 +15,6 @@
     <string name="msg_unlocked">Unlocked</string>
     <string name="msg_auto_locked">Auto Locked</string>
     <string name="msg_audio_unavailable">Unable to start audio. Please try again.</string>
-    <string name="msg_audio_focus_denied">Audio focus is currently unavailable.</string>
     <string name="dialog_theme_title">Theme Color</string>
     <string name="dialog_timbre_title">Select Timbre</string>
     <string name="btn_cancel">Cancel</string>

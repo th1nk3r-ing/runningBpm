@@ -186,6 +186,8 @@ final class AppState {
                 self.cancelAutoLock()
             }
             self.updateNowPlaying()
+            // 桥接内部转态可能伴随音频环境变化，刷新控制中心归属。
+            self.refreshRemoteControlAvailability()
         }
     }
 
@@ -236,15 +238,6 @@ final class AppState {
             isPaused: false
         )
         scheduleAutoLock()
-    }
-
-    func stop() {
-        isRunning = false
-        isPaused = false
-        elapsedSeconds = 0
-        AudioEngineBridge.shared().stop()
-        cancelAutoLock()
-        isLocked = false
     }
 
     func restart() {
@@ -318,12 +311,19 @@ final class AppState {
 
     // MARK: - NowPlaying
 
+    /// 统一入口：RemoteCommandManager 内部依据 isOtherAudioPlaying 决定是否让出控制中心，
+    /// 因此所有状态变化只需调用此处。
     private func updateNowPlaying() {
         RemoteCommandManager.shared.updateNowPlaying(
             bpm: bpm,
             elapsed: elapsedSeconds,
             isPaused: !isRunning || isPaused
         )
+    }
+
+    /// 刷新锁屏控制权归属（有其它音频在播时让出）。幂等、轻量。
+    func refreshRemoteControlAvailability() {
+        RemoteCommandManager.shared.refreshAvailability()
     }
 
     // MARK: - Persistence

@@ -1,13 +1,12 @@
 package com.runbeat.pro;
 
+import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Intent;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,8 +25,11 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.runbeat.audio.AudioEngine;
 
@@ -38,7 +40,6 @@ import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import java.lang.ref.WeakReference;
 import java.util.Locale;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -123,10 +124,14 @@ public class MainActivity extends AppCompatActivity {
     private final Handler autoLockHandler = new Handler(Looper.getMainLooper());
     private Runnable autoLockRunnable = null;
 
-    // ===== 音频焦点（Fix #9）=====
-    private static AudioManager retainedAudioManager;
-    private static AudioFocusRequest retainedAudioFocusRequest;
-    private static WeakReference<MainActivity> audioFocusOwner = new WeakReference<>(null);
+    // ===== 来电自动暂停 =====
+    // 通话监听由 MetronomeService 持有；Activity 只负责惰性申请权限并同步 Service 状态。
+    private ActivityResultLauncher<String> phonePermissionLauncher;
+    private boolean phonePermissionRequested = false;
+
+    /** Service 侧（来电暂停/恢复）状态变化时刷新本页 UI 与计时器；主线程回调。 */
+    private final MetronomeService.PlaybackStateListener serviceStateListener =
+            this::syncUiWithServiceState;
 
     // ===== 生命周期 =====
 
@@ -142,7 +147,15 @@ public class MainActivity extends AppCompatActivity {
         bindViews();
         setupListeners();
 
+        // 通话状态权限：惰性申请；拒绝后节拍器功能不受影响，仅跳过来电自动暂停。
+        phonePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> {
+                    if (granted) MetronomeService.onPhonePermissionGranted();
+                });
+
         // 配置变更时复用进程内的 native 引擎，避免旧 Activity 销毁它。
+        AudioEngineRestorer.applyAudioSharingPreference(this);
         boolean engineReady = AudioEngine.initialize();
         if (engineReady) {
             soundAssetsLoaded = AudioEngineRestorer.loadDefaultSamples(this);
@@ -196,7 +209,6 @@ public class MainActivity extends AppCompatActivity {
         if (isRunning) {
             boolean restored = restoreAudioEngine(bpm, isPaused);
             if (!restored) {
-                abandonAudioFocus();
                 isRunning = false;
                 isPaused = false;
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
@@ -204,13 +216,8 @@ public class MainActivity extends AppCompatActivity {
         }
         if (isRunning) {
             if (!isPaused) {
-                if (requestAudioFocus()) {
-                    timerHandler.removeCallbacks(timerRunnable);
-                    timerHandler.postDelayed(timerRunnable, 1000);
-                } else {
-                    AudioEngine.nativePause();
-                    isPaused = true;
-                }
+                timerHandler.removeCallbacks(timerRunnable);
+                timerHandler.postDelayed(timerRunnable, 1000);
             }
             updateUI();
             updateServiceNotification();
@@ -231,17 +238,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 后台期间 Service 可能因来电暂停/恢复，回到前台先对齐状态。
+        MetronomeService.addPlaybackStateListener(serviceStateListener);
+        syncFromPersistedState();
+    }
+
+    @Override
+    protected void onPause() {
+        MetronomeService.removePlaybackStateListener(serviceStateListener);
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
+        MetronomeService.removePlaybackStateListener(serviceStateListener);
         timerHandler.removeCallbacks(timerRunnable);
         bpmHoldHandler.removeCallbacksAndMessages(null);
         autoLockHandler.removeCallbacksAndMessages(null);
         if (!isChangingConfigurations()) {
-            abandonAudioFocus();
             MetronomeService.stopExplicitly(this);
             AudioEngine.destroy();
-        } else if (audioFocusOwner.get() == this) {
-            // Keep the focus request through Activity recreation without retaining this Activity.
-            audioFocusOwner = new WeakReference<>(null);
         }
         super.onDestroy();
     }
@@ -387,6 +405,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean restoreAudioEngine(double targetBpm, boolean paused) {
+        AudioEngineRestorer.applyAudioSharingPreference(this);
         boolean restored = AudioEngineRestorer.restorePlaybackState(targetBpm, paused);
         if (restored) ensureAudioSamplesLoaded();
         return restored;
@@ -564,39 +583,31 @@ public class MainActivity extends AppCompatActivity {
     private void toggleStartPause() {
         if (!isRunning) {
             // START
-            if (!requestAudioFocus()) {
-                Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
-                return;
-            }
             if (!restoreAudioEngine(bpm, false)) {
-                abandonAudioFocus();
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
             }
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
+            timerHandler.removeCallbacks(timerRunnable);
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
+            maybeRequestPhonePermission();
         } else if (isPaused) {
             // RESUME
-            if (!requestAudioFocus()) {
-                Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
-                return;
-            }
             if (!restoreAudioEngine(bpm, false)) {
-                abandonAudioFocus();
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
             }
             isPaused = false;
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
+            maybeRequestPhonePermission();
         } else {
-            // PAUSE
+            // PAUSE（用户手动暂停，不会被自动恢复）
             isPaused = true;
             AudioEngine.nativePause();
-            abandonAudioFocus();  // Fix #9: 暂停时释放焦点
             timerHandler.removeCallbacks(timerRunnable);
             cancelAutoLock();
         }
@@ -618,15 +629,10 @@ public class MainActivity extends AppCompatActivity {
     // ===== RESTART =====
 
     private void restartMetronome() {
-        if (!requestAudioFocus()) {
-            Toast.makeText(this, R.string.msg_audio_focus_denied, Toast.LENGTH_SHORT).show();
-            return;
-        }
         AudioEngine.nativeStop();
         if (!restoreAudioEngine(bpm, false)) {
             isRunning = false;
             isPaused = false;
-            abandonAudioFocus();
             MetronomeService.stopExplicitly(this);
             updateUI();
             Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
@@ -657,73 +663,44 @@ public class MainActivity extends AppCompatActivity {
         startService(svcIntent);
     }
 
-    // ===== 音频焦点管理（Fix #9）=====
+    // ===== 来电自动暂停（权限 / 与 Service 状态同步）=====
 
     /**
-     * 请求 AUDIOFOCUS_GAIN（长期焦点，适合跑步全程）。
-     * 焦点丢失时（如来电结束后对方接管）自动暂停节拍器。
+     * 惰性申请 READ_PHONE_STATE（仅用于来电自动暂停）。
+     * 用户拒绝不影响节拍器功能；已授予时顺带确保 Service 已注册监听。
      */
-    private boolean requestAudioFocus() {
-        if (MetronomeService.hasRecoveryAudioFocus()) {
-            MetronomeService.transferRecoveryAudioFocusToActivity();
+    private void maybeRequestPhonePermission() {
+        if (phonePermissionLauncher == null) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+                == PackageManager.PERMISSION_GRANTED) {
+            MetronomeService.onPhonePermissionGranted();
+            return;
         }
-        if (retainedAudioFocusRequest != null) {
-            audioFocusOwner = new WeakReference<>(this);
-            return true;
-        }
-        AudioManager manager = (AudioManager) getApplicationContext()
-                .getSystemService(AUDIO_SERVICE);
-        if (manager == null) return false;
-
-        AudioAttributes attrs = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build();
-
-        AudioFocusRequest request = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attrs)
-                .setWillPauseWhenDucked(false)  // 跑步者需要完整音量，不自动降音
-                .setOnAudioFocusChangeListener(focusChange -> {
-                    MainActivity owner = audioFocusOwner.get();
-                    if (owner != null) owner.handleAudioFocusChange(focusChange);
-                }, new Handler(Looper.getMainLooper()))
-                .build();
-
-        audioFocusOwner = new WeakReference<>(this);
-        int result = manager.requestAudioFocus(request);
-        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            manager.abandonAudioFocusRequest(request);
-            audioFocusOwner = new WeakReference<>(null);
-            return false;
-        }
-        retainedAudioManager = manager;
-        retainedAudioFocusRequest = request;
-        return true;
+        if (phonePermissionRequested) return;
+        phonePermissionRequested = true;
+        phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE);
     }
 
-    private void handleAudioFocusChange(int focusChange) {
-        if (focusChange == AudioManager.AUDIOFOCUS_LOSS && isRunning && !isPaused) {
-            // 其他 App 长期占用焦点（如来电结束后播放器接管）→ 暂停
-            isPaused = true;
-            AudioEngine.nativePause();
-            timerHandler.removeCallbacks(timerRunnable);
+    /** 回到前台时读取持久化状态，对齐 UI 与计时器（如通话暂停仍在进行）。 */
+    private void syncFromPersistedState() {
+        boolean running = MetronomeService.hasPersistedPlayback(this);
+        boolean paused = running && MetronomeService.wasPersistedPaused(this);
+        syncUiWithServiceState(running, paused);
+    }
+
+    /** 将 Service 驱动的运行/暂停状态映射到本页 UI 与计时器；主线程调用。 */
+    private void syncUiWithServiceState(boolean running, boolean paused) {
+        if (running == isRunning && paused == isPaused) return;
+        isRunning = running;
+        isPaused = paused;
+        timerHandler.removeCallbacks(timerRunnable);
+        if (isRunning && !isPaused) {
+            timerHandler.postDelayed(timerRunnable, 1000);
+            scheduleAutoLock();
+        } else {
             cancelAutoLock();
-            runOnUiThread(this::updateUI);
-            updateServiceNotification();
-            abandonAudioFocus();
         }
-        // AUDIOFOCUS_LOSS_TRANSIENT / TRANSIENT_CAN_DUCK：
-        // 短暂打断（如导航提示音），跑步场景保持节拍不暂停。
-    }
-
-    /** 放弃音频焦点（暂停或销毁时调用）。 */
-    private void abandonAudioFocus() {
-        if (retainedAudioManager != null && retainedAudioFocusRequest != null) {
-            retainedAudioManager.abandonAudioFocusRequest(retainedAudioFocusRequest);
-        }
-        retainedAudioManager = null;
-        retainedAudioFocusRequest = null;
-        audioFocusOwner = new WeakReference<>(null);
+        updateUI();
     }
 
     // ===== 电池优化引导（Fix #8）=====

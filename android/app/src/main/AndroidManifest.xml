@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 引导用户将本应用加入电池优化白名单，确保后台跑步节拍器 4h+ 不被杀死 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 监听通话状态，来电时自动暂停节拍器（未授予时静默降级） -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
         android:allowBackup="true"

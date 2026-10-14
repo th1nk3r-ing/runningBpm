@@ -83,6 +83,9 @@ struct ContentView: View {
             if state.isRunningNotPaused {
                 state.elapsedSeconds += 1
             }
+            // 系统没有「其它 App 开始/停止播放」通知，借 1s 计时器低频探测，
+            // 及时让出 / 夺回锁屏控制权（幂等、轻量）。
+            state.refreshRemoteControlAvailability()
         }
     }
 

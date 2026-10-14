@@ -1,6 +1,7 @@
 package com.runbeat.pro;
 
 import android.content.Context;
+import android.media.AudioManager;
 
 import com.runbeat.audio.AudioEngine;
 
@@ -17,6 +18,16 @@ final class AudioEngineRestorer {
     };
 
     private AudioEngineRestorer() {}
+
+    /**
+     * 查询系统是否正有其它音频在播放，并告知 native 开流策略：
+     * 有 → SHARED（稳定混音）；无 → 维持 EXCLUSIVE 优先。
+     */
+    static void applyAudioSharingPreference(Context context) {
+        AudioManager am = (AudioManager) context.getApplicationContext()
+                .getSystemService(Context.AUDIO_SERVICE);
+        AudioEngine.nativeSetMixWithOthers(am != null && am.isMusicActive());
+    }
 
     static boolean loadDefaultSamples(Context context) {
         return AudioEngine.nativeLoadWavAssets(

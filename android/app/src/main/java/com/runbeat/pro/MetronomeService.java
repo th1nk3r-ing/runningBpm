@@ -5,9 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -20,6 +17,8 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.runbeat.audio.AudioEngine;
+
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 前台服务 — 保活三剑客：
@@ -37,8 +36,36 @@ public class MetronomeService extends Service {
     private static final String KEY_RUNNING = "running";
     private static final String KEY_BPM = "bpm";
     private static final String KEY_PAUSED = "paused";
+    private static final String KEY_PAUSED_BY_CALL = "paused_by_call";
     private static final String KEY_EXPLICIT_STOP = "explicit_stop";
-    private static volatile boolean recoveryFocusHeld;
+
+    /**
+     * 播放状态观察者：来电自动暂停/恢复由 Service 驱动，Activity 在前后台切换时据此同步 UI。
+     * 回调在主线程触发。
+     */
+    public interface PlaybackStateListener {
+        void onServicePlaybackStateChanged(boolean running, boolean paused);
+    }
+
+    private static final CopyOnWriteArrayList<PlaybackStateListener> stateListeners =
+            new CopyOnWriteArrayList<>();
+
+    public static void addPlaybackStateListener(PlaybackStateListener listener) {
+        if (listener != null) stateListeners.addIfAbsent(listener);
+    }
+
+    public static void removePlaybackStateListener(PlaybackStateListener listener) {
+        stateListeners.remove(listener);
+    }
+
+    /**
+     * 通话权限授予后由 Activity 调用：补注册通话监听。
+     * Service 未运行时为空操作（下次 onCreate 会重新注册）。
+     */
+    public static void onPhonePermissionGranted() {
+        MetronomeService s = instance;
+        if (s != null) s.startCallMonitoring();
+    }
 
     public static boolean hasPersistedPlayback(Context context) {
         return context.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
@@ -61,7 +88,8 @@ public class MetronomeService extends Service {
         boolean serviceActive = instance != null;
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(KEY_RUNNING, false)
-                .putBoolean(KEY_PAUSED, false);
+                .putBoolean(KEY_PAUSED, false)
+                .putBoolean(KEY_PAUSED_BY_CALL, false);
         if (serviceActive) {
             editor.putBoolean(KEY_EXPLICIT_STOP, true);
         } else {
@@ -71,33 +99,27 @@ public class MetronomeService extends Service {
         context.stopService(new Intent(context, MetronomeService.class));
     }
 
-    public static boolean hasRecoveryAudioFocus() {
-        return recoveryFocusHeld;
-    }
-
-    public static void transferRecoveryAudioFocusToActivity() {
-        MetronomeService service = instance;
-        if (service != null) service.releaseRecoveryAudioFocus();
-    }
-
     /** WakeLock 最长持有时间：4 小时，超时自动释放，防止进程被杀后 CPU 永不休眠 */
     private static final long WAKE_LOCK_TIMEOUT_MS = 4 * 3600 * 1000L;
 
     private PowerManager.WakeLock wakeLock;
-    private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
 
     // 当前通知显示状态（由 onStartCommand 通过 intent extras 更新）
     private double currentBpm = 180.0;
     private boolean currentPaused = false;
     private boolean currentRunning;
+    /** 本次暂停是否由来电触发；仅此标记为 true 时通话结束才自动恢复。 */
+    private boolean pausedByCall;
     private SharedPreferences runtimePrefs;
     private PreferencesManager preferences;
+    private CallStateMonitor callStateMonitor;
     private final Handler streamHealthHandler = new Handler(Looper.getMainLooper());
     private final Runnable streamHealthRunnable = new Runnable() {
         @Override
         public void run() {
             if (!currentRunning) return;
+            // 重建前刷新混音偏好：运行期间其它 App 可能开始播放，避免用旧值重开 EXCLUSIVE。
+            AudioEngineRestorer.applyAudioSharingPreference(MetronomeService.this);
             AudioEngine.nativeRebuildStreamIfNeeded();
             streamHealthHandler.postDelayed(this, 1000);
         }
@@ -111,9 +133,12 @@ public class MetronomeService extends Service {
         currentRunning = runtimePrefs.getBoolean(KEY_RUNNING, false);
         currentBpm = runtimePrefs.getFloat(KEY_BPM, 180.0f);
         currentPaused = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED, false);
+        pausedByCall = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED_BY_CALL, false);
         preferences = new PreferencesManager(this);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
+        // 服务是通话监听的唯一持有者：进程被杀 + START_STICKY 重启后依然能自动暂停。
+        startCallMonitoring();
     }
 
     @Override
@@ -126,11 +151,12 @@ public class MetronomeService extends Service {
             currentRunning = intent.getBooleanExtra("running", true);
             currentBpm = bpm;
             currentPaused = paused;
+            // 来自 UI 的状态同步一律视为用户意图：清除来电暂停标记，绝不被自动恢复。
+            pausedByCall = false;
             persistPlaybackState();
         }
         streamHealthHandler.removeCallbacks(streamHealthRunnable);
         if (currentRunning) streamHealthHandler.postDelayed(streamHealthRunnable, 1000);
-        if (!currentRunning || currentPaused) releaseRecoveryAudioFocus();
         syncWakeLock();
         if (!currentRunning) {
             stopSelf(startId);
@@ -152,11 +178,15 @@ public class MetronomeService extends Service {
         // System teardown preserves recovery; only a marked explicit stop clears it here.
         if (runtimePrefs != null && runtimePrefs.getBoolean(KEY_EXPLICIT_STOP, false)) {
             currentPaused = false;
+            pausedByCall = false;
             persistPlaybackState();
             runtimePrefs.edit().remove(KEY_EXPLICIT_STOP).apply();
         }
+        if (callStateMonitor != null) {
+            callStateMonitor.stop();
+            callStateMonitor = null;
+        }
         streamHealthHandler.removeCallbacks(streamHealthRunnable);
-        releaseRecoveryAudioFocus();
         releaseWakeLock();
         if (instance == this) instance = null;
         super.onDestroy();
@@ -166,18 +196,14 @@ public class MetronomeService extends Service {
         currentRunning = runtimePrefs.getBoolean(KEY_RUNNING, false);
         currentBpm = runtimePrefs.getFloat(KEY_BPM, 180.0f);
         currentPaused = runtimePrefs.getBoolean(KEY_PAUSED, false);
+        pausedByCall = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED_BY_CALL, false);
         if (!currentRunning) return;
 
-        if (!currentPaused && !requestRecoveryAudioFocus()) {
-            currentRunning = false;
-            persistPlaybackState();
-            return;
-        }
-
+        AudioEngineRestorer.applyAudioSharingPreference(this);
         if (!AudioEngine.initialize()) {
             currentRunning = false;
             currentPaused = false;
-            releaseRecoveryAudioFocus();
+            pausedByCall = false;
             persistPlaybackState();
             return;
         }
@@ -194,49 +220,9 @@ public class MetronomeService extends Service {
         if (!restored) {
             currentRunning = false;
             currentPaused = false;
-            releaseRecoveryAudioFocus();
+            pausedByCall = false;
             persistPlaybackState();
         }
-    }
-
-    private boolean requestRecoveryAudioFocus() {
-        if (audioFocusRequest != null) return true;
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-        if (audioManager == null) return false;
-
-        AudioAttributes attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build();
-        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attributes)
-                .setOnAudioFocusChangeListener(change -> {
-                    if (change == AudioManager.AUDIOFOCUS_LOSS && currentRunning && !currentPaused) {
-                        AudioEngine.nativePause();
-                        currentPaused = true;
-                        persistPlaybackState();
-                        syncWakeLock();
-                        updateNotification();
-                        releaseRecoveryAudioFocus();
-                    }
-                }, new Handler(Looper.getMainLooper()))
-                .build();
-
-        if (audioManager.requestAudioFocus(audioFocusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-            audioFocusRequest = null;
-            return false;
-        }
-        recoveryFocusHeld = true;
-        return true;
-    }
-
-    private void releaseRecoveryAudioFocus() {
-        if (audioManager != null && audioFocusRequest != null) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-            audioFocusRequest = null;
-        }
-        recoveryFocusHeld = false;
     }
 
     private void persistPlaybackState() {
@@ -245,6 +231,7 @@ public class MetronomeService extends Service {
                 .putBoolean(KEY_RUNNING, currentRunning)
                 .putFloat(KEY_BPM, (float) currentBpm)
                 .putBoolean(KEY_PAUSED, currentPaused)
+                .putBoolean(KEY_PAUSED_BY_CALL, pausedByCall)
                 .apply();
     }
 
@@ -282,6 +269,64 @@ public class MetronomeService extends Service {
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .build();
+    }
+
+    // ===== 通话状态监听（来电自动暂停的唯一持有者）=====
+
+    /** 创建并注册通话监听；权限未授予时 CallStateMonitor 内部静默降级。 */
+    private void startCallMonitoring() {
+        if (callStateMonitor == null) {
+            callStateMonitor = new CallStateMonitor(this, new CallStateMonitor.Callback() {
+                @Override
+                public void onCallStarted() {
+                    handleCallStarted();
+                }
+
+                @Override
+                public void onCallEnded() {
+                    handleCallEnded();
+                }
+            });
+        }
+        callStateMonitor.start();
+    }
+
+    /** 来电（响铃/接通）：仅在我们运行且未暂停时暂停，并记录暂停来源。 */
+    private void handleCallStarted() {
+        if (!currentRunning || currentPaused) return;
+        AudioEngine.nativePause();
+        currentPaused = true;
+        pausedByCall = true;
+        persistPlaybackState();
+        syncWakeLock();
+        updateNotification();
+        notifyPlaybackStateChanged();
+    }
+
+    /** 通话结束：仅当「因来电而暂停」时自动恢复；用户手动暂停/停止不恢复。 */
+    private void handleCallEnded() {
+        if (!pausedByCall) return;
+        pausedByCall = false;
+        if (currentRunning) {
+            boolean resumed = restorePlaybackState(false);
+            if (resumed) currentPaused = false;
+        }
+        persistPlaybackState();
+        syncWakeLock();
+        updateNotification();
+        notifyPlaybackStateChanged();
+    }
+
+    /** 刷新混音偏好并把引擎带到目标暂停态；供通话结束恢复复用。 */
+    private boolean restorePlaybackState(boolean paused) {
+        AudioEngineRestorer.applyAudioSharingPreference(this);
+        return AudioEngineRestorer.restorePlaybackState(currentBpm, paused);
+    }
+
+    private void notifyPlaybackStateChanged() {
+        for (PlaybackStateListener listener : stateListeners) {
+            listener.onServicePlaybackStateChanged(currentRunning, currentPaused);
+        }
     }
 
     // ===== WakeLock =====

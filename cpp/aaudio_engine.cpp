@@ -2,7 +2,9 @@
 #include <android/log.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
+#include <android/api-level.h>
 #include <aaudio/AAudio.h>
+#include <dlfcn.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -34,6 +36,10 @@ static bool gUseAssetSamples = false;  // false = 仅生成式 fallback tick
 
 // 流断开标志：errorCallback（音频线程）写入，主线程检查并重建
 static std::atomic<bool> gStreamError{false};
+
+// 是否有其它音频在播放（由 Java 侧 AudioManager.isMusicActive() 传入）：
+// true → 直接以 SHARED 开流与系统混音；false → 维持 EXCLUSIVE 优先（低延迟）。
+static std::atomic<bool> gMixWithOthers{false};
 
 // WAV 加载失败时的 fallback：生成强/弱拍默认木鱼采样。
 // sampleRate 必须与流实际采样率一致，否则 click 音高/时长失真。
@@ -212,6 +218,23 @@ static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_r
     }
 }
 
+/**
+ * 显式声明流用途为媒体/音乐。
+ * AAudioStreamBuilder_setUsage / setContentType 引入于 API 28，而 minSdk 为 26，
+ * 故在 API 28+ 运行时用 dlsym 取用；API 26/27 下依赖 AAudio 默认值（本即 MEDIA/MUSIC）。
+ */
+static void ApplyMediaStreamAttributes(AAudioStreamBuilder* builder) {
+    if (android_get_device_api_level() < 28) return;
+    typedef void (*SetUsageFn)(AAudioStreamBuilder*, aaudio_usage_t);
+    typedef void (*SetContentTypeFn)(AAudioStreamBuilder*, aaudio_content_type_t);
+    static SetUsageFn setUsage =
+            reinterpret_cast<SetUsageFn>(dlsym(RTLD_DEFAULT, "AAudioStreamBuilder_setUsage"));
+    static SetContentTypeFn setContentType =
+            reinterpret_cast<SetContentTypeFn>(dlsym(RTLD_DEFAULT, "AAudioStreamBuilder_setContentType"));
+    if (setUsage) setUsage(builder, AAUDIO_USAGE_MEDIA);
+    if (setContentType) setContentType(builder, AAUDIO_CONTENT_TYPE_MUSIC);
+}
+
 static bool OpenStream() {
     if (gStream != nullptr) return true;
 
@@ -224,18 +247,26 @@ static bool OpenStream() {
 
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    ApplyMediaStreamAttributes(builder);
     // 固定 mono + 48kHz：多通道后半 buffer 会读到未初始化内存，且避免 AAudio 重采样漂移
     AAudioStreamBuilder_setChannelCount(builder, 1);
     AAudioStreamBuilder_setSampleRate(builder, beat::kDefaultSampleRate);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr);
 
-    AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
-    result = AAudioStreamBuilder_openStream(builder, &gStream);
-    if (result != AAUDIO_OK) {
-        LOGI("EXCLUSIVE mode failed (%d), fallback to SHARED", result);
+    // 有其它音频在播放时直接 SHARED（绕过独占、保证混音）；否则先试 EXCLUSIVE 低延迟，
+    // 失败再回退 SHARED。
+    if (gMixWithOthers.load(std::memory_order_relaxed)) {
         AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
         result = AAudioStreamBuilder_openStream(builder, &gStream);
+    } else {
+        AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
+        result = AAudioStreamBuilder_openStream(builder, &gStream);
+        if (result != AAUDIO_OK) {
+            LOGI("EXCLUSIVE mode failed (%d), fallback to SHARED", result);
+            AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+            result = AAudioStreamBuilder_openStream(builder, &gStream);
+        }
     }
 
     AAudioStreamBuilder_delete(builder);
@@ -283,8 +314,16 @@ static bool RebuildStream() {
     CloseStream();
 
     if (!OpenStream()) {
-        LOGE("RebuildStream: OpenStream failed");
-        return false;
+        // 重建期间可能已有其它 App 开始播放：以 SHARED 再试一次保证混音共存，
+        // 失败则还原原偏好。
+        const bool prevMix = gMixWithOthers.load(std::memory_order_relaxed);
+        LOGI("RebuildStream: OpenStream failed, retrying with SHARED");
+        gMixWithOthers.store(true, std::memory_order_relaxed);
+        if (!OpenStream()) {
+            gMixWithOthers.store(prevMix, std::memory_order_relaxed);
+            LOGE("RebuildStream: OpenStream failed (SHARED)");
+            return false;
+        }
     }
 
     // Running/Paused 均重启流（Paused 时引擎输出静音，Resume 零延迟）；Idle 只 Open
@@ -422,6 +461,13 @@ Java_com_runbeat_audio_AudioEngine_nativeSetAccent(JNIEnv * /*env*/, jclass /*cl
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass /*clazz*/, jdouble gain) {
     gEngine.SetOutputGain(static_cast<double>(gain));
+}
+
+/** 由 Java 侧在开流前调用：告知是否有其它音频在播放，决定 SHARED/EXCLUSIVE 开流策略。 */
+extern "C" JNIEXPORT void JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeSetMixWithOthers(
+        JNIEnv * /*env*/, jclass /*clazz*/, jboolean mixWithOthers) {
+    gMixWithOthers.store(static_cast<bool>(mixWithOthers), std::memory_order_relaxed);
 }
 
 /** 契约：hi、lo、（提供的）chime 任一失败即 false；chime 路径缺失不算失败。 */
