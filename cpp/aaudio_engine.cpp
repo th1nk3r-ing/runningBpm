@@ -17,25 +17,20 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// ========== 全局状态 ==========
-
 static AudioEngine gEngine;
 static AAudioStream* gStream = nullptr;
 static int32_t gStreamSampleRate = beat::kDefaultSampleRate;
 static int32_t gStreamChannels = 1;
 static std::atomic<bool> gNativeInitialized{false};
 
-// 已加载样本的重采样追踪（采样率变化后按新率重载）
-// These vectors hold the samples AS RESAMPLED at gSamplesLoadedRate. Both the
-// asset-loading path and the pure-fallback path publish here, so a later stream
-// rebuild that negotiated a different hardware rate can re-resample (assets) or
-// regenerate (fallback) at the new rate before pushing them back into gEngine.
+// 已加载样本按 gSamplesLoadedRate 重采样保存；采样率变化后据此重采样（资产）或
+// 重新生成（fallback），再推回 gEngine。
 static std::vector<float> gTickHiSamples;
 static std::vector<float> gTickLoSamples;
 static std::vector<float> gChimeSamples;
 static bool gHaveChimeSamples = false;
 static int gSamplesLoadedRate = 0;
-static bool gUseAssetSamples = false;  // false = only generated fallback ticks
+static bool gUseAssetSamples = false;  // false = 仅生成式 fallback tick
 
 // 流断开标志：errorCallback（音频线程）写入，主线程检查并重建
 static std::atomic<bool> gStreamError{false};
@@ -49,9 +44,6 @@ static void GenerateDefaultTickSamples(std::vector<float>& outTickHi,
     outTickLo = WavGenerator::MakeWoodTick(sampleRate, false);
 }
 
-// ========== WAV 资源加载 ==========
-
-/** 从 Android Assets 加载 WAV 文件 */
 static bool LoadWavFromAsset(AAssetManager* mgr, const char* path,
                               std::vector<float>& outSamples, int targetRate) {
     AAsset* asset = AAssetManager_open(mgr, path, AASSET_MODE_BUFFER);
@@ -76,27 +68,17 @@ static bool LoadWavFromAsset(AAssetManager* mgr, const char* path,
     return ok;
 }
 
-/**
- * 重采样目标采样率：流打开后为流实际采样率，否则用默认值。
- */
+/** 重采样目标采样率：流打开后用实际采样率，否则默认值。 */
 static int CurrentTargetSampleRate() {
     return (gStreamSampleRate > 0) ? static_cast<int>(gStreamSampleRate)
                                    : beat::kDefaultSampleRate;
 }
 
 /**
- * 统一的样本装载入口 — nativeLoadWavAssets / nativeLoadSoundPack 的公共实现。
- *
- * 语义：
- *   - tickHi 必须可加载，否则不做任何装载（引擎保留现有样本）；
- *   - tickLo 为 null / 空串 / 加载失败 → 复用强拍样本（单音色），loOk=false；
- *   - chime 为 null / 空串 → 跳过（chimeOk=true，保留引擎中现有 chime）；
- *   - 所有样本按 CurrentTargetSampleRate() 重采样，并更新 gSamplesLoadedRate
- *     供采样率变化后的重载使用。
- *
- * @return 各部分独立的成功标志，布尔契约由调用方决定：
- *   nativeLoadWavAssets 要求 hi && lo && (提供的)chime 全部成功；
- *   nativeLoadSoundPack 只要求 hi 成功（lo 允许回退复用）。
+ * 两个加载入口的公共实现。tickHi 必须可加载，否则不装载；
+ * tickLo 为 null/空/失败 → 复用强拍（loOk=false）；chime 为 null/空 → 跳过。
+ * 均按 CurrentTargetSampleRate() 重采样并更新 gSamplesLoadedRate。
+ * 返回各部分独立标志，布尔契约由调用方决定。
  */
 struct SampleLoadResult {
     bool hiOk;
@@ -158,11 +140,8 @@ static SampleLoadResult LoadSamplesIntoEngine(AAssetManager* mgr, const char* ti
     return result;
 }
 
-/**
- * 采样率变化后的样本重载。
- * Clock::SetSampleRate 已保证 BPM 节拍速度正确；这里只修正按旧率
- * 重采样的音色样本（音高/音色时长），不触碰时钟数学。
- */
+/** 采样率变化后的样本重载：只修正按旧率重采样的音色（音高/时长）；
+ *  Clock::SetSampleRate 已保证节拍速度，不触碰时钟数学。 */
 static void ReloadSamplesIfSampleRateChanged() {
     if (gSamplesLoadedRate <= 0 || gSamplesLoadedRate == gStreamSampleRate) return;
 
@@ -191,8 +170,6 @@ static void ReloadSamplesIfSampleRateChanged() {
     gSamplesLoadedRate = gStreamSampleRate;
 }
 
-// ========== AAudio 回调 ==========
-
 // 复用的 mono 临时缓冲：音频线程独占，nativeInit 中预 reserve 4096 帧；
 // callback 只在容量足够时 resize，否则输出静音 — 不在回调中扩容。
 static std::vector<float> gMonoBuf;
@@ -213,7 +190,6 @@ static aaudio_data_callback_result_t dataCallback(
             std::fill_n(out, outputSamples, 0.0f);
             return AAUDIO_CALLBACK_RESULT_CONTINUE;
         }
-        // 多通道（一般为 stereo）：先生成 mono，再交错写入每个通道。
         gMonoBuf.resize(static_cast<size_t>(numFrames));
         gEngine.OnAudioCallback(gMonoBuf.data(), numFrames);
         const int ch = gStreamChannels;
@@ -236,8 +212,6 @@ static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_r
     }
 }
 
-// ========== 流管理 ==========
-
 static bool OpenStream() {
     if (gStream != nullptr) return true;
 
@@ -248,7 +222,6 @@ static bool OpenStream() {
         return false;
     }
 
-    // 核心常量集中于 core/Constants.hpp
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
     // 固定 mono + 48kHz：多通道后半 buffer 会读到未初始化内存，且避免 AAudio 重采样漂移
@@ -257,7 +230,6 @@ static bool OpenStream() {
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr);
 
-    // 尝试独占模式 → 降级共享
     AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
     result = AAudioStreamBuilder_openStream(builder, &gStream);
     if (result != AAUDIO_OK) {
@@ -274,7 +246,6 @@ static bool OpenStream() {
         return false;
     }
 
-    // 查询实际采样率/通道数并同步引擎
     gStreamSampleRate = AAudioStream_getSampleRate(gStream);
     gStreamChannels   = AAudioStream_getChannelCount(gStream);
     // 采样率变化后的样本重载：音高/音色时长漂移修正。
@@ -282,7 +253,7 @@ static bool OpenStream() {
     ReloadSamplesIfSampleRateChanged();
     gEngine.SetSampleRate(gStreamSampleRate);
 
-    // 让 AAudio 选择合适的 buffer 容量（默认通常 = 2 burst），降低 underrun
+    // 2 burst 缓冲降低 underrun
     int32_t framesPerBurst = AAudioStream_getFramesPerBurst(gStream);
     AAudioStream_setBufferSizeInFrames(gStream, framesPerBurst * 2);
 
@@ -305,8 +276,7 @@ static void CloseStream() {
 }
 
 /**
- * 重建 AAudio 流并按当前引擎状态决定是否立即启动。
- * 必须在非音频线程调用（主线程 / JNI 线程均可）。
+ * 重建流并按引擎状态决定是否立即启动；必须在非音频线程调用。
  */
 static bool RebuildStream() {
     LOGI("RebuildStream: closing dead stream");
@@ -343,7 +313,6 @@ static bool InitializeEngine() {
         gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
         gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
-        // 记录样本率，采样率变化后按新率重新生成（ReloadSamplesIfSampleRateChanged）
         gTickHiSamples = std::move(tickHi);
         gTickLoSamples = std::move(tickLo);
         gSamplesLoadedRate = gStreamSampleRate;
@@ -354,8 +323,6 @@ static bool InitializeEngine() {
     }
     return true;
 }
-
-// ========== JNI — 引擎生命周期 ==========
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/) {
@@ -375,7 +342,6 @@ Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*
         return JNI_FALSE;
     }
     gEngine.Start(static_cast<double>(bpm));
-    // 启动 AAudio 流（OPEN/STOPPED/PAUSED → STARTED）
     aaudio_result_t r = AAudioStream_requestStart(gStream);
     if (r != AAUDIO_OK) {
         LOGE("nativeStart: requestStart failed: %d", r);
@@ -415,7 +381,6 @@ Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz
     if (gStream == nullptr && !InitializeEngine()) return JNI_FALSE;
     if (gStream == nullptr) return JNI_FALSE;
     gEngine.Resume();
-    // 从 PAUSED/STOPPED 状态重新启动 AAudio 流
     aaudio_result_t r = AAudioStream_requestStart(gStream);
     if (r != AAUDIO_OK) {
         LOGE("nativeResume: requestStart failed: %d", r);
@@ -431,7 +396,6 @@ Java_com_runbeat_audio_AudioEngine_nativeGetState(JNIEnv* /*env*/, jclass /*claz
     return static_cast<jint>(gEngine.GetState());
 }
 
-// ========== JNI — 运行时参数 ==========
 // 这些 setter 属高频调用（滑条拖动/BPM 连续触发），不逐次 LOGI 刷屏。
 
 extern "C" JNIEXPORT void JNICALL
@@ -460,13 +424,7 @@ Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass 
     gEngine.SetOutputGain(static_cast<double>(gain));
 }
 
-/**
- * 从 Assets 加载 WAV 资源到引擎。
- * 共用 LoadSamplesIntoEngine；保留原 Java 签名
- * （AudioEngine.nativeLoadWavAssets(mgr, hi, lo, chime)）。
- * 契约：hi、lo、（提供的）chime 任一加载失败即返回 false（chime 路径缺失
- * 则不作为失败条件）。
- */
+/** 契约：hi、lo、（提供的）chime 任一失败即 false；chime 路径缺失不算失败。 */
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
         JNIEnv* env, jclass /*clazz*/,
@@ -488,11 +446,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-/**
- * 加载成对音色（强拍 + 弱拍）。
- * 共用 LoadSamplesIntoEngine；保留原 Java 签名。
- * 契约：仅要求 tickHi 成功；tickLo 缺失/失败时两路复用强拍样本（单音色）。
- */
+/** 契约：仅要求 tickHi 成功；tickLo 缺失/失败时两路复用强拍（单音色）。 */
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
         JNIEnv* env, jclass /*clazz*/,
@@ -517,13 +471,7 @@ Java_com_runbeat_audio_AudioEngine_nativeTriggerChime(JNIEnv * /*env*/, jclass /
     gEngine.TriggerChime();
 }
 
-// ========== JNI — 流健康检查（由主线程定期调用） ==========
-
-/**
- * 检查并重建断开的 AAudio 流。
- * 在 Java 层 1 秒定时器中调用，保证在主线程执行。
- * 返回 true 表示流被重建过。
- */
+/** 由 Java 层 1 秒定时器在主线程调用；返回是否重建过流。 */
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeeded(
         JNIEnv* /*env*/, jclass /*clazz*/) {
@@ -536,8 +484,6 @@ Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeeded(
     if (!rebuilt) gStreamError.store(true, std::memory_order_release);
     return rebuilt ? JNI_TRUE : JNI_FALSE;
 }
-
-// ========== JNI — 清理 ==========
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeDestroy(JNIEnv* /*env*/, jclass /*clazz*/) {

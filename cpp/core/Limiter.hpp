@@ -4,13 +4,9 @@
 
 #include "Constants.hpp"
 
-/**
- * 限幅器 — 防止多声源叠加导致数字削波。
- * AudioEngine 当前使用硬限幅以保留 click 瞬态；软限幅实现保留作通用备选。
- */
+/** 限幅器 — 防止多声源叠加导致数字削波；生产用硬限幅，软限幅仅测试备选。 */
 struct Limiter {
-    /** tanh 软限幅（渐进饱和，输出趋近 ±1.0）
-     *  test-only — 生产链路只使用 ProcessHard。 */
+    /** tanh 软限幅（输出趋近 ±1.0）— test-only，生产只用 ProcessHard。 */
     static void Process(float* buffer, int numFrames) noexcept {
         for (int i = 0; i < numFrames; ++i) {
             buffer[i] = std::tanh(buffer[i]);

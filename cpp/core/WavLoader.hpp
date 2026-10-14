@@ -8,18 +8,9 @@
 #include <limits>
 
 /**
- * 简易 WAV 解析器。
- *
- * 支持格式：标准 RIFF WAV，PCM 16-bit mono，采样率任意。
- * 要求 RIFF/chunk 声明不越过实际数据范围，奇数长度 chunk 带 RIFF padding；拒绝截断或占位长度文件。
- * 不支持：stereo、24/32-bit、IEEE float、压缩格式。
- * 重采样：若 targetSampleRate > 0 且与文件采样率不同，自动线性重采样至目标采样率。
- *
- * 用法：
- *   WavLoader loader;
- *   if (loader.Load(data, size, targetSampleRate)) {
- *       auto& samples = loader.GetSamples();  // float [-1, 1]
- *   }
+ * 简易 WAV 解析器 — 仅 RIFF PCM 16-bit mono（拒绝 stereo/24/32-bit/float/压缩）。
+ * 严格校验 chunk 边界与奇数长度 padding，拒绝截断或占位长度文件；
+ * targetSampleRate > 0 且与文件不同时自动线性重采样。样本为 float [-1, 1]。
  */
 
 class WavLoader {
@@ -27,7 +18,6 @@ public:
     bool Load(const uint8_t* wavData, size_t dataSize, int targetSampleRate = 0) {
         Reset();
 
-        // RIFF header
         if (wavData == nullptr || dataSize < 44) return false;
         if (Read32(wavData, 0) != 0x46464952) return false; // "RIFF"
         const uint32_t fileSize = Read32(wavData, 4);
@@ -36,7 +26,6 @@ public:
         const size_t riffEnd = 8 + static_cast<size_t>(fileSize);
         size_t pos = 12;
 
-        // Chunks
         int sampleRate = 0;
         int bitsPerSample = 0;
         std::vector<int16_t> rawPcm;
@@ -85,13 +74,11 @@ public:
 
         if (rawPcm.empty() || sampleRate == 0) return false;
 
-        // 转为 float [-1, 1]
         samples_.resize(rawPcm.size());
         for (size_t i = 0; i < rawPcm.size(); ++i) {
             samples_[i] = rawPcm[i] / 32768.0f;
         }
 
-        // 重采样
         if (targetSampleRate > 0 && targetSampleRate != sampleRate) {
             samples_ = Resample(samples_, sampleRate, targetSampleRate);
         }
@@ -103,11 +90,8 @@ public:
     [[nodiscard]] const std::vector<float>& GetSamples() const { return samples_; }
     [[nodiscard]] int GetSampleRate() const { return sampleRate_; }
 
-    /**
-     * 线性重采样（公用：采样率变化后重新重采样已加载样本）。
-     * @param inRate 输入采样率；outRate 输出采样率。非正值或相等率（恒等）时
-     *   原样返回输入，避免 ratio=inf/NaN —— 非法输入视作防御性失败而非崩溃。
-     */
+    /** 线性重采样（采样率变化后重采样已载样本）。非正/相等率时原样返回，
+     *  避免 ratio=inf/NaN —— 非法输入视作防御性失败而非崩溃。 */
     static std::vector<float> Resample(
             const std::vector<float>& input, int inRate, int outRate) {
         if (inRate <= 0 || outRate <= 0) {
@@ -157,10 +141,7 @@ private:
     int sampleRate_ = 0;
 };
 
-// ===== WAV 文件生成器（构建时使用） =====
-
 struct WavGenerator {
-    /** 将 float PCM 采样数据编码为 16-bit mono WAV 文件字节流 */
     static std::vector<uint8_t> Generate(const std::vector<float>& samples,
                                           int sampleRate) {
         std::vector<int16_t> pcm(samples.size());
@@ -169,7 +150,6 @@ struct WavGenerator {
             pcm[i] = static_cast<int16_t>(s * 32767.0f);
         }
 
-        // WAV header
         uint32_t dataSize = static_cast<uint32_t>(pcm.size() * 2);
         uint32_t fileSize = 36 + dataSize;
 
@@ -187,11 +167,9 @@ struct WavGenerator {
             wav[pos++] = static_cast<uint8_t>(v >> 8);
         };
 
-        // RIFF
         write32(0x46464952); // "RIFF"
         write32(fileSize);
         write32(0x45564157); // "WAVE"
-        // fmt
         write32(0x20746D66); // "fmt "
         write32(16);         // chunk size
         write16(1);          // PCM
@@ -200,11 +178,9 @@ struct WavGenerator {
         write32(sampleRate * 2); // byte rate
         write16(2);              // block align
         write16(16);             // bits per sample
-        // data
         write32(0x61746164); // "data"
         write32(dataSize);
 
-        // PCM data
         for (size_t i = 0; i < pcm.size(); ++i) {
             write16(static_cast<uint16_t>(pcm[i]));
         }
@@ -212,12 +188,8 @@ struct WavGenerator {
         return wav;
     }
 
-    /**
-     * 生成"塑料/木块"敲击 click：强拍 ~3.2kHz/45ms，弱拍 ~2.4kHz/30ms。
-     * 0.4ms 淡入与 2ms 淡出抑制边界突变；波形裁剪到 ±0.6，避免默认增益下触及硬限幅。
-     *
-     * @param accent  true=强拍（更高频 + 稍长 + 略大）；false=弱拍
-     */
+    /** 生成"塑料/木块"click：强拍 ~3.2kHz/45ms，弱拍 ~2.4kHz/30ms；0.4ms 淡入、
+     *  2ms 淡出抑制边界突变，并裁剪到 ±0.6 以免默认增益下触及硬限幅。 */
     static std::vector<float> MakeWoodTick(int sampleRate, bool accent) noexcept {
         const float durationSec = accent ? 0.045f : 0.030f;
         const float fundamental = accent ? 3200.0f : 2400.0f;

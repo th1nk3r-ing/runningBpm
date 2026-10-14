@@ -1,6 +1,5 @@
 #import "AudioEngineBridge.h"
 
-// C++ Core — 直接复用
 #include "AudioEngine.hpp"
 #include "Constants.hpp"
 #include "WavLoader.hpp"
@@ -8,7 +7,6 @@
 #import <AudioUnit/AudioUnit.h>
 #import <AudioToolbox/AudioToolbox.h>
 
-// 通知名 — clang importer 将 *Notification 常量映射为 Notification.Name 供 Swift 使用
 NSString * const RunBeatAudioInterruptionRequiresPauseNotification =
         @"AudioInterruptionRequiresPauseNotification";
 NSString * const RunBeatAudioStateChangedNotification =
@@ -17,12 +15,10 @@ NSString * const RunBeatAudioStateChangedNotification =
 // 全局 C++ 引擎单例（进程级生命期）
 static AudioEngine gEngine;
 
-// RemoteIO 的 output bus 索引
 static constexpr UInt32 kOutputBus = 0;
 
-// 已加载样本与负载时采样率追踪。ARC 不允许非平凡 C++ 对象作 ivar，而桥接是
-// 进程级单例，与 gEngine 一致放文件作用域。硬件采样率变化（路由切换）时据此
-// 重采样（WAV 资产）或重新生成（fallback），节拍间隔由 Clock 保持不受影响。
+// 已载样本与负载时采样率追踪。ARC 不允许非平凡 C++ 对象作 ivar，故与 gEngine
+// 一样放文件作用域；硬件采样率变化时据此重采样/重新生成（节拍由 Clock 保持）。
 static std::vector<float> gTickHiSamples;
 static std::vector<float> gTickLoSamples;
 static std::vector<float> gChimeSamples;
@@ -56,7 +52,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     BOOL _isRunning;
     BOOL _isPaused;
 
-    // 流重建退避重试
     BOOL _needsStreamRebuild;
     BOOL _rebuildRetryScheduled;
     NSUInteger _rebuildRetryAttempts;
@@ -132,10 +127,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         NSLog(@"[AudioEngineBridge] destroyed");
     }];
 }
-
-// --------------------------------------------------------------------------
-// 引擎生命周期（意图驱动的状态机）
-// --------------------------------------------------------------------------
 
 - (BOOL)startWithBpm:(double)bpm {
     BOOL ok = [self _syncStateReturning:^BOOL() {
@@ -227,19 +218,14 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     }];
 }
 
-// --------------------------------------------------------------------------
-// 状态机内部实现（必须在 _stateQueue 上运行，方法名 Locked 后缀即此约定）
-// --------------------------------------------------------------------------
+// 状态机内部实现：方法名 Locked 后缀即"必须在 _stateQueue 上运行"。
 
-/// 确保 driver 可用并按 _playbackIntent 启动。
-/// 复用健康 driver（ready 且能 start）而非每次重建；只有 driver 缺失或 !ready
-/// 时才重新创建。start 失败的 driver 视为可疑，一并丢弃，让退避重试重建。
-/// 返回 NO 时登记 _needsStreamRebuild 并安排退避重试（不会静默放弃恢复）。
-///
-/// @param notify 同步通知：直接由 start/resume 调用时为 NO（Swift 依据返回值
-///   自行镜像）；内部路径（退避重试、路由变化、中断结尾）为 YES —— 这些路径
-///   的可见状态变化 Swift 无法通过返回值得知，必须投递
-///   RunBeatAudioStateChangedNotification。仅在 isRunning/isPaused 真变化时通知。
+/// 确保 driver 可用并按 _playbackIntent 启动。复用健康 driver，仅在缺失/!ready
+/// 时重建；start 失败的 driver 一并丢弃让退避重试重建。返回 NO 时登记
+/// _needsStreamRebuild 并安排重试。
+/// notify：start/resume 直接调用传 NO（Swift 依返回值镜像）；内部路径（重试、
+/// 路由变化、中断结尾）传 YES，投递 StateChanged 通知 —— 这些转态 Swift 无法
+/// 由返回值得知。仅在 isRunning/isPaused 真变化时通知。
 - (BOOL)_attemptStreamRestartLockedWithNotify:(BOOL)notify {
     const BOOL oldRunning = self->_isRunning;
     const BOOL oldPaused = self->_isPaused;
@@ -278,7 +264,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         [self->_driver stop];
     }
 
-    // 成功：driver ready，且（意图为 Running 时）已成功启动。
     self->_needsStreamRebuild = NO;
     self->_rebuildRetryAttempts = 0;
     self->_rebuildRetryScheduled = NO;
@@ -328,10 +313,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     self->_needsStreamRebuild = NO;
 }
 
-// --------------------------------------------------------------------------
-// _stateQueue 同步包装
-// --------------------------------------------------------------------------
-
 // dispatch_assert_queue_not：若未来某路径在 _stateQueue 上重入 dispatch_sync
 // 将必然死锁 —— 在 Debug/Release 均以断言提前暴露（iOS 11+ / min target 17）。
 - (void)_syncState:(dispatch_block_t)block {
@@ -347,10 +328,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     });
     return out;
 }
-
-// --------------------------------------------------------------------------
-// 运行时参数
-// --------------------------------------------------------------------------
 
 // setter 只写 gEngine 的无锁原子量，不触碰桥接状态机，无需入队。
 - (void)setBpm:(double)bpm {
@@ -374,10 +351,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
 - (void)setOutputGain:(double)gain {
     gEngine.SetOutputGain(gain);
 }
-
-// --------------------------------------------------------------------------
-// 样本加载 (WAV → C++引擎)
-// --------------------------------------------------------------------------
 
 - (BOOL)loadTickHiWithFileURL:(NSURL *)hiURL tickLo:(NSURL *)loURL {
     BOOL ok = [self _syncStateReturning:^BOOL() {
@@ -446,17 +419,10 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     return ok;
 }
 
-// --------------------------------------------------------------------------
-// 事件触发
-// --------------------------------------------------------------------------
-
 - (void)triggerChime {
     gEngine.TriggerChime();
 }
 
-// --------------------------------------------------------------------------
-// 引擎状态查询
-// --------------------------------------------------------------------------
 - (BOOL)isRunning {
     return [self _syncStateReturning:^BOOL() { return _isRunning; }];
 }
@@ -503,10 +469,6 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
 }
 
 @end
-
-// ============================================================================
-// AudioUnitDriver (RemoteIO)
-// ============================================================================
 
 // 渲染回调 — C 自由函数，必须实时安全：
 // refcon 直接是 gEngine（进程级单例），无 Obj-C 消息发送、无内存分配；
@@ -566,7 +528,6 @@ static OSStatus RenderCallback(
 
 - (BOOL)isReady { return _ready; }
 
-// 创建 RemoteIO AudioUnit
 - (BOOL)_createAudioUnit {
     AudioComponentDescription desc;
     desc.componentType          = kAudioUnitType_Output;
@@ -612,7 +573,6 @@ static OSStatus RenderCallback(
         return NO;
     }
 
-    // 注册渲染回调（refcon = &gEngine，实时路径直接调 C++ 引擎）
     AURenderCallbackStruct callbackStruct;
     callbackStruct.inputProc       = RenderCallback;
     callbackStruct.inputProcRefCon = reinterpret_cast<void *>(&gEngine);

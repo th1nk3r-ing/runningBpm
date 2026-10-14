@@ -1,10 +1,6 @@
 #pragma once
 
-/**
- * 混音器 — 双路信号混音（tick + chime → mono，非立体声）。
- * test-only — 生产链路在 AudioEngine::OnAudioCallback 内联混音，不经过此组件。
- * 无状态、内联，实时安全。
- */
+/** 双路混音（tick + chime → mono）— test-only，生产在 OnAudioCallback 内联混音。 */
 struct Mixer {
     static void Process(const float* tickBuf, const float* chimeBuf,
                         float* out, int numFrames,

@@ -2,10 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 通知名常量 — .mm 与 Swift 共用此符号（clang importer 会将 *Notification 常量
-/// 映射为 Notification.Name，勿在别处复制字符串字面量）。
-///   RunBeatAudioInterruptionRequiresPause → 中断结束需暂停
-///   RunBeatAudioStateChanged → 桥接可见状态（isRunning/isPaused）发生 Swift 未知的变化
+/// 通知名常量 — .mm 与 Swift 共用（clang importer 映射为 Notification.Name，勿复制字面量）。
+///   RequiresPause → 中断结束需暂停；StateChanged → 可见状态发生 Swift 未知的变化
 FOUNDATION_EXPORT NSString * const RunBeatAudioInterruptionRequiresPauseNotification;
 FOUNDATION_EXPORT NSString * const RunBeatAudioStateChangedNotification;
 
@@ -23,7 +21,6 @@ FOUNDATION_EXPORT NSString * const RunBeatAudioStateChangedNotification;
 - (void)pause;
 - (BOOL)resume;
 
-/// AudioSession 中断 / 路由变化
 - (void)handleAudioInterruptionBegan;
 - (void)handleAudioInterruptionEndedShouldResume:(BOOL)shouldResume;
 - (void)handleAudioRouteChange;

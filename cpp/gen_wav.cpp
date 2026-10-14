@@ -1,9 +1,5 @@
-/**
- * WAV 资源生成器
- *
- * 编译：cd cpp && g++ -std=c++17 -O2 -I. -o gen_wav gen_wav.cpp && ./gen_wav
- * 输出：../android/app/src/main/assets/sounds/default/tick_hi.wav, tick_lo.wav, chime.wav
- */
+/** WAV 资源生成器 — 输出到 android/app/src/main/assets/sounds/default/。
+ *  编译运行：cd cpp && g++ -std=c++17 -O2 -I. -o gen_wav gen_wav.cpp && ./gen_wav */
 
 #include "core/Constants.hpp"
 #include "core/WavLoader.hpp"

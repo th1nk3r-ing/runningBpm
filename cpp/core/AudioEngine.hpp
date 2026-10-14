@@ -16,21 +16,16 @@ static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
 static_assert(std::atomic<double>::is_always_lock_free,
               "Audio callback requires lock-free double atomics");
 
-/** 实时安全的静音填充 — callback 各静音出口共用。 */
+/** 实时安全静音填充 — callback 各静音出口共用。 */
 inline void WriteSilence(float* out, int numFrames) noexcept {
     for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
 }
 
 /**
  * RAII 守卫：把 OnAudioCallback 注册为"活跃 callback"，保证
- * BeginSampleUpdate 能等待全部在途 callback 退出后再换样本。
- *
- * 内存序：
- *   - 入口两次 seq_cst 读 loading_ + 一次 seq_cst fetch_add/fetch_sub 发生在
- *     "看到 loading=true 之前"；第二个检查关闭了"更新在首次检查与发布计数之间
- *     开始"的竞争窗口。
- *   - TryEnter 成功后析构必然 seq_cst fetch_sub；失败路径（含第二次检查失败）
- *     已在 TryEnter 内自减，不会再减。
+ * BeginSampleUpdate 能等待全部在途 callback 退出后再换样本。入口两次 seq_cst
+ * 检查 loading_，关闭"更新在首次检查与发布计数之间开始"的竞争窗口；
+ * TryEnter 成功后析构必然 fetch_sub，失败路径已在 TryEnter 内自减。
  */
 class RealtimeSection {
 public:
@@ -61,22 +56,12 @@ private:
 };
 
 /**
- * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为完整 Pipeline。
+ * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为 Pipeline。
  *
- * 线程模型：
- *   - 控制线程（Main/JNI）：Start/Stop/Pause/Resume/SetBpm/SetVolume/TriggerChime
- *   - 单一、串行的音频回调线程（AAudio/AudioUnit）：OnAudioCallback（必须实时安全）
- *   参数通过 std::atomic 无锁交换，音频线程在 callback 入口处一次加载。
- *   Clock 状态仅由 callback 线程访问；Start / SetSampleRate 通过原子请求应用。
- *   样本更新会等待所有在途 callback；Clock 和 voice 状态仍要求 callback 不重入。
- *   Debug 构建会在回调重入时断言失败。
- *
- * Pipeline 各帧：
- *   1. Clock.Advance()                    → 是否触发 tick
- *   2. tickPlayer.Play() / .ReadOne()     → tick 采样（hi 或 lo 由 accent 决定）
- *   3. chimePlayer.ReadOne()              → chime 采样
- *   4. 内联混音：out[i] = tick * tickGain + chime * chimeGain
- *   5. Limiter::ProcessHard()             → 硬限幅（±0.97）
+ * 线程模型：控制线程（Main/JNI）调用 Start/Stop/Pause/Resume/SetBpm/SetVolume/
+ * TriggerChime；音频回调为单一串行线程、必须实时安全。参数经 std::atomic 无锁
+ * 交换，在 callback 入口一次性加载；Clock 状态仅由 callback 线程访问，Start /
+ * SetSampleRate 以原子请求应用；样本更新会等待所有在途 callback 退出。
  */
 class AudioEngine {
 public:
@@ -85,11 +70,9 @@ public:
     AudioEngine() = default;
     ~AudioEngine() { Stop(); }
 
-    // ===== 控制接口（非音频线程调用） =====
-
     void Start(double bpm) noexcept {
         bpm_.store(bpm, std::memory_order_relaxed);
-        // Clock 由音频线程独占。generation 是合并式请求：callback 应用最新 BPM 和相位重置。
+        // Clock 由音频线程独占。generation 合并请求：callback 应用最新 BPM 并重置相位。
         startGeneration_.fetch_add(1, std::memory_order_release);
         state_.store(State::Running, std::memory_order_release);
     }
@@ -141,8 +124,7 @@ public:
 
     void TriggerChime() noexcept {
         if (state_.load(std::memory_order_relaxed) != State::Running) return;
-        // Voice state is callback-thread-owned. Queue a bounded number of requests
-        // instead of calling SamplePlayer::Play() from the control thread.
+        // Voice 状态由 callback 线程独占：控制线程只排队有界请求，不直接调 Play()。
         unsigned pending = pendingChimeTriggers_.load(std::memory_order_relaxed);
         while (pending < SamplePlayer::kVoices &&
                !pendingChimeTriggers_.compare_exchange_weak(
@@ -155,8 +137,6 @@ public:
     [[nodiscard]] State GetState() const noexcept {
         return state_.load(std::memory_order_relaxed);
     }
-
-    // ===== 样本加载（启动前调用） =====
 
     void LoadTickSamples(const float* data, size_t length) noexcept {
         BeginSampleUpdate();
@@ -176,11 +156,9 @@ public:
         EndSampleUpdate();
     }
 
-    // ===== 音频回调（实时线程，严禁阻塞/分配） =====
-
     /**
-     * 运行时替换 tick 样本（控制线程调用）。
-     * 在控制线程等待当前 callback 退出；更新期间的新 callback 输出静音。
+     * 运行时替换 tick 样本（控制线程）。更新期间新 callback 输出静音；
+     * 控制线程在此等待当前 callback 退出。
      */
     void LoadSoundPack(const float* tickHi, size_t tickHiLen,
                         const float* tickLo, size_t tickLoLen) noexcept {
@@ -192,7 +170,6 @@ public:
 
     void OnAudioCallback(float* out, int numFrames) noexcept {
 #ifndef NDEBUG
-        // Catch a host violating the documented single-serial-callback contract.
         if (callbackActive_.test_and_set(std::memory_order_acquire)) {
             assert(false && "AudioEngine::OnAudioCallback must not be reentrant");
             return;
@@ -263,7 +240,7 @@ public:
 
 private:
     void BeginSampleUpdate() noexcept {
-        // Serialize control-thread writers. This wait never occurs on the audio thread.
+        // 串行化控制线程写入者；此等待不会发生在音频线程。
         while (sampleUpdateLock_.test_and_set(std::memory_order_acquire)) {
             std::this_thread::yield();
         }
@@ -300,7 +277,6 @@ private:
     std::atomic<double> tickGain_{beat::kDefaultTickGain};
     std::atomic<double> chimeGain_{beat::kDefaultChimeGain};
     std::atomic<bool> accentOn_{true};
-    // 输出总倍率，叠加在 tick/chime 增益之上
     std::atomic<double> outputGain_{beat::kDefaultOutputGain};
 
     std::atomic<State> state_{State::Idle};

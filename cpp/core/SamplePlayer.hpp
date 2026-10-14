@@ -6,36 +6,23 @@
 #include <array>
 
 /**
- * 复音采样播放器 — 事件驱动、Voice Pool + Double Buffer 设计。
- *
- * 设计要点：
- *   1) 内置 N 个 voice（独立 readPos），Play() 分配空闲（或最先开始的）voice，
- *      避免新触发截断尚在播放的样本，对 150ms+ 的长音色（Clap 等）尤为重要。
- *   2) ReadOne() 累加所有活跃 voice 的当前采样，简单 mix 后由后级 Limiter 保护。
- *   3) Double buffer：Load() 写入非活跃缓冲区，翻转索引后音频线程读新缓冲。
- *      使用 AudioEngine 时，Load 由引擎在 callback 静止区间内调用；直接使用本类时，
- *      调用方必须确保 Load 与 ReadOne/Render 不并发。
- *
- * 线程模型：
- *   - 控制线程：Load()（需外部保证 callback 静止）/ Play() / Stop()
- *   - 音频线程：ReadOne() / Render()
+ * 复音采样播放器 — Voice Pool + Double Buffer。
+ * Play() 分配空闲（或最先结束的）voice，避免新触发截断长音色；ReadOne() 累加
+ * 所有活跃 voice，后级 Limiter 保护。Load() 写非活跃缓冲后翻转索引，音频线程
+ * 读活跃缓冲 —— Load 与 ReadOne/Render 不得并发。
+ * 线程：控制线程 Load/Play/Stop；音频线程 ReadOne/Render。
  */
 class SamplePlayer {
 public:
     static constexpr int kVoices = 4;
 
-    /**
-     * 加载新样本（控制线程调用）。
-     * 写入非活跃缓冲区，完成后翻转活跃索引。
-     * 使用 AudioEngine 时由引擎确保当前 callback 已退出后再调用。
-     */
+    /** 加载新样本（控制线程）：写非活跃缓冲，完成后翻转索引。经 AudioEngine
+     *  调用时由引擎保证当前 callback 已退出。 */
     void Load(const float* data, size_t length) noexcept {
-        // 写入非活跃缓冲区（音频线程不会读它）
         int inactive = 1 - activeIdx_.load(std::memory_order_relaxed);
         bufs_[inactive].assign(data, data + length);
-        // seq_cst store：发布已写入的缓冲区索引（并发 Load/Read 需由调用方排除）
+        // seq_cst store：发布已写入的缓冲区索引（并发 Load/Read 由调用方排除）
         activeIdx_.store(inactive, std::memory_order_seq_cst);
-        // 停止所有 voice（旧样本的播放位置已无效）
         for (auto& v : voices_) {
             v.readPos.store(0, std::memory_order_release);
             v.playing.store(false, std::memory_order_release);
@@ -47,14 +34,12 @@ public:
         if (bufs_[activeIdx_.load(std::memory_order_seq_cst)].empty()) return;
 
         int target = -1;
-        // 找空闲 voice
         for (int i = 0; i < kVoices; ++i) {
             if (!voices_[i].playing.load(std::memory_order_acquire)) {
                 target = i;
                 break;
             }
         }
-        // 全部繁忙 → 选 readPos 最大的（最先结束）voice 复用
         if (target < 0) {
             size_t maxPos = 0;
             target = 0;
@@ -84,11 +69,8 @@ public:
         return false;
     }
 
-    /**
-     * 读取一个采样并前进所有活跃 voice 的读指针，实时安全。
-     * 通过 seq_cst load activeIdx_ 获取当前活跃缓冲区；Load() 与读取不能并发。
-     * @return 所有活跃 voice 当前采样之和
-     */
+    /** 读取一个采样并前进所有活跃 voice（实时安全），返回各 voice 采样之和。
+     *  Load() 与读取不得并发。 */
     float ReadOne() noexcept {
         // seq_cst load：若 Load() 已完成 seq_cst store(inactive)，此处必然读到新索引
         const auto& data = bufs_[activeIdx_.load(std::memory_order_seq_cst)];
@@ -108,8 +90,7 @@ public:
         return acc;
     }
 
-    /** 渲染 numFrames 帧到 out 缓冲区（带 gain），用于离线测试
-     *  test-only — 生产链路在 AudioEngine::OnAudioCallback 内联使用 ReadOne()。 */
+    /** 渲染 numFrames 帧到 out（带 gain）— test-only，生产内联用 ReadOne()。 */
     void Render(float* out, int numFrames, float gain) noexcept {
         for (int i = 0; i < numFrames; ++i) {
             out[i] = ReadOne() * gain;
