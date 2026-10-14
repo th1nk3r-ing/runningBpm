@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/AudioEngine.hpp"
+#include "core/Constants.hpp"
 #include "core/WavLoader.hpp"
 
 #define LOG_TAG "RunBeat-Native"
@@ -20,20 +21,27 @@
 
 static AudioEngine gEngine;
 static AAudioStream* gStream = nullptr;
-static int32_t gStreamSampleRate = 48000;
+static int32_t gStreamSampleRate = beat::kDefaultSampleRate;
 static int32_t gStreamChannels = 1;
 static std::atomic<bool> gNativeInitialized{false};
+
+// 已加载样本的重采样追踪（采样率变化后按新率重载）
+// These vectors hold the samples AS RESAMPLED at gSamplesLoadedRate. Both the
+// asset-loading path and the pure-fallback path publish here, so a later stream
+// rebuild that negotiated a different hardware rate can re-resample (assets) or
+// regenerate (fallback) at the new rate before pushing them back into gEngine.
+static std::vector<float> gTickHiSamples;
+static std::vector<float> gTickLoSamples;
+static std::vector<float> gChimeSamples;
+static bool gHaveChimeSamples = false;
+static int gSamplesLoadedRate = 0;
+static bool gUseAssetSamples = false;  // false = only generated fallback ticks
 
 // 流断开标志：errorCallback（音频线程）写入，主线程检查并重建
 static std::atomic<bool> gStreamError{false};
 
-// ========== 采样生成 ==========
-
-/**
- * 生成默认木鱼采样（WAV 加载失败时的 fallback）。
- * 使用 WavGenerator::MakeWoodTick 同时生成强拍和弱拍。
- * @param sampleRate 必须与 AAudio 流实际采样率一致，否则 click 速率/音高会失真。
- */
+// WAV 加载失败时的 fallback：生成强/弱拍默认木鱼采样。
+// sampleRate 必须与流实际采样率一致，否则 click 音高/时长失真。
 static void GenerateDefaultTickSamples(std::vector<float>& outTickHi,
                                         std::vector<float>& outTickLo,
                                         int sampleRate) {
@@ -68,54 +76,125 @@ static bool LoadWavFromAsset(AAssetManager* mgr, const char* path,
     return ok;
 }
 
-/** 从 Assets 加载 WAV 资源到引擎 */
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
-        JNIEnv* env, jclass /*clazz*/,
-        jobject assetManagerObj,
-        jstring tickHiPath, jstring tickLoPath, jstring chimePath) {
-    AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
-    if (!mgr) return JNI_FALSE;
+/**
+ * 重采样目标采样率：流打开后为流实际采样率，否则用默认值。
+ */
+static int CurrentTargetSampleRate() {
+    return (gStreamSampleRate > 0) ? static_cast<int>(gStreamSampleRate)
+                                   : beat::kDefaultSampleRate;
+}
 
-    // 用流实际采样率重采样，避免音高/速度漂移
-    int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
-    std::vector<float> samples;
-    bool tickHiOk = false;
-    bool tickLoOk = false;
-    bool chimeOk = false;
+/**
+ * 统一的样本装载入口 — nativeLoadWavAssets / nativeLoadSoundPack 的公共实现。
+ *
+ * 语义：
+ *   - tickHi 必须可加载，否则不做任何装载（引擎保留现有样本）；
+ *   - tickLo 为 null / 空串 / 加载失败 → 复用强拍样本（单音色），loOk=false；
+ *   - chime 为 null / 空串 → 跳过（chimeOk=true，保留引擎中现有 chime）；
+ *   - 所有样本按 CurrentTargetSampleRate() 重采样，并更新 gSamplesLoadedRate
+ *     供采样率变化后的重载使用。
+ *
+ * @return 各部分独立的成功标志，布尔契约由调用方决定：
+ *   nativeLoadWavAssets 要求 hi && lo && (提供的)chime 全部成功；
+ *   nativeLoadSoundPack 只要求 hi 成功（lo 允许回退复用）。
+ */
+struct SampleLoadResult {
+    bool hiOk;
+    bool loOk;
+    bool chimeOk;
+};
 
-    // tick_hi
-    const char* cTickHi = env->GetStringUTFChars(tickHiPath, nullptr);
-    if (cTickHi != nullptr) {
-        tickHiOk = LoadWavFromAsset(mgr, cTickHi, samples, targetRate);
-        env->ReleaseStringUTFChars(tickHiPath, cTickHi);
-        if (tickHiOk) gEngine.LoadTickSamples(samples.data(), samples.size());
+static SampleLoadResult LoadSamplesIntoEngine(AAssetManager* mgr, const char* tickHiPath,
+                                              const char* tickLoPath, const char* chimePath) {
+    SampleLoadResult result{false, false, false};
+    if (!mgr || tickHiPath == nullptr || tickHiPath[0] == '\0') return result;
+
+    const int targetRate = CurrentTargetSampleRate();
+    std::vector<float> hiSamples;
+    result.hiOk = LoadWavFromAsset(mgr, tickHiPath, hiSamples, targetRate)
+                  && !hiSamples.empty();
+    if (!result.hiOk) {
+        LOGE("LoadSamplesIntoEngine: failed to load tickHi");
+        return result;
     }
 
-    // tick_lo (accent)
-    const char* cTickLo = env->GetStringUTFChars(tickLoPath, nullptr);
-    if (cTickLo != nullptr) {
-        tickLoOk = LoadWavFromAsset(mgr, cTickLo, samples, targetRate);
-        if (tickLoOk) gEngine.LoadTickLoSamples(samples.data(), samples.size());
-        env->ReleaseStringUTFChars(tickLoPath, cTickLo);
+    if (tickLoPath != nullptr && tickLoPath[0] != '\0') {
+        std::vector<float> loSamples;
+        result.loOk = LoadWavFromAsset(mgr, tickLoPath, loSamples, targetRate)
+                      && !loSamples.empty();
+        if (result.loOk) {
+            gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
+                                  loSamples.data(), loSamples.size());
+            gTickHiSamples = hiSamples;
+            gTickLoSamples = loSamples;
+        }
+    }
+    if (!result.loOk) {
+        // lo 缺失/失败：弱拍复用强拍样本（单音色）
+        gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
+                              hiSamples.data(), hiSamples.size());
+        gTickHiSamples = hiSamples;
+        gTickLoSamples = hiSamples;
+    }
+    gSamplesLoadedRate = targetRate;
+    gUseAssetSamples = true;
+
+    if (chimePath != nullptr && chimePath[0] != '\0') {
+        std::vector<float> chimeSamples;
+        result.chimeOk = LoadWavFromAsset(mgr, chimePath, chimeSamples, targetRate);
+        if (result.chimeOk && !chimeSamples.empty()) {
+            gEngine.LoadChimeSamples(chimeSamples.data(), chimeSamples.size());
+            gChimeSamples = chimeSamples;
+            gHaveChimeSamples = true;
+        }
+    } else {
+        result.chimeOk = true;
     }
 
-    // chime
-    const char* cChime = env->GetStringUTFChars(chimePath, nullptr);
-    if (cChime != nullptr) {
-        chimeOk = LoadWavFromAsset(mgr, cChime, samples, targetRate);
-        if (chimeOk) gEngine.LoadChimeSamples(samples.data(), samples.size());
-        env->ReleaseStringUTFChars(chimePath, cChime);
-    }
+    LOGI("Samples loaded @%d Hz: hi=%s lo=%s chime=%s",
+         targetRate, result.hiOk ? "ok" : "FAIL",
+         result.loOk ? "ok" : "reuse-hi",
+         (chimePath && chimePath[0]) ? (result.chimeOk ? "ok" : "FAIL") : "skipped");
+    return result;
+}
 
-    LOGI("WAV assets loaded: hi=%d lo=%d chime=%d", tickHiOk, tickLoOk, chimeOk);
-    return (tickHiOk && tickLoOk && chimeOk) ? JNI_TRUE : JNI_FALSE;
+/**
+ * 采样率变化后的样本重载。
+ * Clock::SetSampleRate 已保证 BPM 节拍速度正确；这里只修正按旧率
+ * 重采样的音色样本（音高/音色时长），不触碰时钟数学。
+ */
+static void ReloadSamplesIfSampleRateChanged() {
+    if (gSamplesLoadedRate <= 0 || gSamplesLoadedRate == gStreamSampleRate) return;
+
+    if (gUseAssetSamples) {
+        gTickHiSamples = WavLoader::Resample(gTickHiSamples, gSamplesLoadedRate,
+                                             gStreamSampleRate);
+        gTickLoSamples = WavLoader::Resample(gTickLoSamples, gSamplesLoadedRate,
+                                             gStreamSampleRate);
+        gEngine.LoadSoundPack(gTickHiSamples.data(), gTickHiSamples.size(),
+                              gTickLoSamples.data(), gTickLoSamples.size());
+        if (gHaveChimeSamples) {
+            gChimeSamples = WavLoader::Resample(gChimeSamples, gSamplesLoadedRate,
+                                                gStreamSampleRate);
+            gEngine.LoadChimeSamples(gChimeSamples.data(), gChimeSamples.size());
+        }
+    } else {
+        std::vector<float> tickHi = WavGenerator::MakeWoodTick(gStreamSampleRate, true);
+        std::vector<float> tickLo = WavGenerator::MakeWoodTick(gStreamSampleRate, false);
+        gEngine.LoadSoundPack(tickHi.data(), tickHi.size(),
+                              tickLo.data(), tickLo.size());
+        gTickHiSamples = std::move(tickHi);
+        gTickLoSamples = std::move(tickLo);
+    }
+    LOGI("Samples reloaded for sample-rate change: %d → %d Hz",
+         gSamplesLoadedRate, gStreamSampleRate);
+    gSamplesLoadedRate = gStreamSampleRate;
 }
 
 // ========== AAudio 回调 ==========
 
-// 复用的 mono 临时缓冲（音频线程独占，nativeInit 中预 reserve 4096 帧；
-// callback 只在容量足够时 resize，否则输出静音，不在回调中扩容）。
+// 复用的 mono 临时缓冲：音频线程独占，nativeInit 中预 reserve 4096 帧；
+// callback 只在容量足够时 resize，否则输出静音 — 不在回调中扩容。
 static std::vector<float> gMonoBuf;
 
 static aaudio_data_callback_result_t dataCallback(
@@ -125,6 +204,8 @@ static aaudio_data_callback_result_t dataCallback(
     if (gStreamChannels <= 1) {
         gEngine.OnAudioCallback(out, numFrames);
     } else {
+        // Defensive path only：OpenStream 固定请求 channelCount=1，
+        // 当前配置下 gStreamChannels > 1 不会被选择；保留以防未来放开单声道限制。
         if (gMonoBuf.capacity() < static_cast<size_t>(numFrames)) {
             // 回调线程禁止扩容；异常大 buffer 直接输出静音，等待上层恢复。
             const size_t outputSamples = static_cast<size_t>(numFrames) *
@@ -167,12 +248,12 @@ static bool OpenStream() {
         return false;
     }
 
-    // 基础配置
+    // 核心常量集中于 core/Constants.hpp
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
     // 固定 mono + 48kHz：多通道后半 buffer 会读到未初始化内存，且避免 AAudio 重采样漂移
     AAudioStreamBuilder_setChannelCount(builder, 1);
-    AAudioStreamBuilder_setSampleRate(builder, 48000);
+    AAudioStreamBuilder_setSampleRate(builder, beat::kDefaultSampleRate);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr);
 
@@ -196,6 +277,9 @@ static bool OpenStream() {
     // 查询实际采样率/通道数并同步引擎
     gStreamSampleRate = AAudioStream_getSampleRate(gStream);
     gStreamChannels   = AAudioStream_getChannelCount(gStream);
+    // 采样率变化后的样本重载：音高/音色时长漂移修正。
+    // 节拍速度不受影响（Clock::SetSampleRate 已重算 framesPerTick），勿动时钟数学。
+    ReloadSamplesIfSampleRateChanged();
     gEngine.SetSampleRate(gStreamSampleRate);
 
     // 让 AAudio 选择合适的 buffer 容量（默认通常 = 2 burst），降低 underrun
@@ -259,6 +343,12 @@ static bool InitializeEngine() {
         gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
         gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
 
+        // 记录样本率，采样率变化后按新率重新生成（ReloadSamplesIfSampleRateChanged）
+        gTickHiSamples = std::move(tickHi);
+        gTickLoSamples = std::move(tickLo);
+        gSamplesLoadedRate = gStreamSampleRate;
+        gUseAssetSamples = false;
+
         if (gMonoBuf.capacity() < 4096) gMonoBuf.reserve(4096);
         gNativeInitialized.store(true, std::memory_order_release);
     }
@@ -272,12 +362,6 @@ Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/)
     LOGI("nativeInit");
     // 打开流但不启动；实际失败会反馈给 Java，之后可由 START 重试。
     return InitializeEngine() ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeHello(JNIEnv *env, jclass /*clazz*/) {
-    LOGI("native loaded");
-    return env->NewStringUTF("hello from native runbeat engine");
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -348,40 +432,66 @@ Java_com_runbeat_audio_AudioEngine_nativeGetState(JNIEnv* /*env*/, jclass /*claz
 }
 
 // ========== JNI — 运行时参数 ==========
+// 这些 setter 属高频调用（滑条拖动/BPM 连续触发），不逐次 LOGI 刷屏。
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetBpm(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
-    LOGI("nativeSetBpm(%.1f)", bpm);
     gEngine.SetBpm(static_cast<double>(bpm));
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetTickVolume(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
-    LOGI("nativeSetTickVolume(%.2f)", vol);
     gEngine.SetTickVolume(static_cast<double>(vol));
 }
 
+// PLANNED（整点报时）：Java 层暂未接线，接口保留。
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetChimeVolume(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
-    LOGI("nativeSetChimeVolume(%.2f)", vol);
     gEngine.SetChimeVolume(static_cast<double>(vol));
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetAccent(JNIEnv * /*env*/, jclass /*clazz*/, jboolean on) {
-    LOGI("nativeSetAccent(%d)", on);
     gEngine.SetAccent(static_cast<bool>(on));
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass /*clazz*/, jdouble gain) {
-    LOGI("nativeSetOutputGain(%.2f)", gain);
     gEngine.SetOutputGain(static_cast<double>(gain));
 }
 
 /**
+ * 从 Assets 加载 WAV 资源到引擎。
+ * 共用 LoadSamplesIntoEngine；保留原 Java 签名
+ * （AudioEngine.nativeLoadWavAssets(mgr, hi, lo, chime)）。
+ * 契约：hi、lo、（提供的）chime 任一加载失败即返回 false（chime 路径缺失
+ * 则不作为失败条件）。
+ */
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
+        JNIEnv* env, jclass /*clazz*/,
+        jobject assetManagerObj,
+        jstring tickHiPath, jstring tickLoPath, jstring chimePath) {
+    AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
+    if (!mgr) return JNI_FALSE;
+
+    const char* cHi  = (tickHiPath != nullptr) ? env->GetStringUTFChars(tickHiPath, nullptr) : nullptr;
+    const char* cLo  = (tickLoPath != nullptr) ? env->GetStringUTFChars(tickLoPath, nullptr) : nullptr;
+    const char* cChime = (chimePath != nullptr) ? env->GetStringUTFChars(chimePath, nullptr) : nullptr;
+
+    const SampleLoadResult r = LoadSamplesIntoEngine(mgr, cHi, cLo, cChime);
+    const bool ok = r.hiOk && r.loOk && r.chimeOk;
+
+    if (cHi != nullptr) env->ReleaseStringUTFChars(tickHiPath, cHi);
+    if (cLo != nullptr) env->ReleaseStringUTFChars(tickLoPath, cLo);
+    if (cChime != nullptr) env->ReleaseStringUTFChars(chimePath, cChime);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
  * 加载成对音色（强拍 + 弱拍）。
- * 若 tickLoPath 为空（null/空串），则两路都使用 tickHiPath（单音色）。
+ * 共用 LoadSamplesIntoEngine；保留原 Java 签名。
+ * 契约：仅要求 tickHi 成功；tickLo 缺失/失败时两路复用强拍样本（单音色）。
  */
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
@@ -389,60 +499,22 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
         jobject assetManagerObj,
         jstring tickHiPath, jstring tickLoPath) {
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
-    if (!mgr || tickHiPath == nullptr) return JNI_FALSE;
+    if (!mgr) return JNI_FALSE;
 
-    const char* cHi = env->GetStringUTFChars(tickHiPath, nullptr);
-    if (cHi == nullptr) return JNI_FALSE;
-    LOGI("nativeLoadSoundPack: hi=%s", cHi);
+    const char* cHi = (tickHiPath != nullptr) ? env->GetStringUTFChars(tickHiPath, nullptr) : nullptr;
+    const char* cLo = (tickLoPath != nullptr) ? env->GetStringUTFChars(tickLoPath, nullptr) : nullptr;
 
-    // 用流实际采样率，避免非 48k 设备（蓝牙）音高漂移
-    int targetRate = (gStreamSampleRate > 0) ? gStreamSampleRate : 48000;
+    const SampleLoadResult r = LoadSamplesIntoEngine(mgr, cHi, cLo, nullptr);  // chime: 不在此入口触碰
 
-    std::vector<float> hiSamples;
-    bool hiOk = LoadWavFromAsset(mgr, cHi, hiSamples, targetRate);
-    env->ReleaseStringUTFChars(tickHiPath, cHi);
-
-    if (!hiOk || hiSamples.empty()) {
-        LOGE("nativeLoadSoundPack: failed to load tickHi");
-        return JNI_FALSE;
-    }
-
-    std::vector<float> loSamples;
-    bool loOk = false;
-    if (tickLoPath != nullptr) {
-        const char* cLo = env->GetStringUTFChars(tickLoPath, nullptr);
-        if (cLo != nullptr) {
-            if (cLo[0] != '\0') {
-                LOGI("nativeLoadSoundPack: lo=%s", cLo);
-                loOk = LoadWavFromAsset(mgr, cLo, loSamples, targetRate);
-            }
-            env->ReleaseStringUTFChars(tickLoPath, cLo);
-        }
-    }
-
-    if (!loOk || loSamples.empty()) {
-        loSamples = hiSamples;  // 弱拍缺失：复用强拍（单音色）
-    }
-
-    gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
-                          loSamples.data(), loSamples.size());
-    return JNI_TRUE;
+    if (cHi != nullptr) env->ReleaseStringUTFChars(tickHiPath, cHi);
+    if (cLo != nullptr) env->ReleaseStringUTFChars(tickLoPath, cLo);
+    return r.hiOk ? JNI_TRUE : JNI_FALSE;
 }
 
+// PLANNED（整点报时）：Java 层暂未接线，接口保留。
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeTriggerChime(JNIEnv * /*env*/, jclass /*clazz*/) {
-    LOGI("nativeTriggerChime");
     gEngine.TriggerChime();
-}
-
-// ========== JNI — XRun 监控 ==========
-
-extern "C" JNIEXPORT jint JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeGetXRunCount(JNIEnv* /*env*/, jclass /*clazz*/) {
-    if (gStream != nullptr) {
-        return static_cast<jint>(AAudioStream_getXRunCount(gStream));
-    }
-    return -1;
 }
 
 // ========== JNI — 流健康检查（由主线程定期调用） ==========

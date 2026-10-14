@@ -2,49 +2,46 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 通知名常量 — .mm 与 Swift 共用此符号（clang importer 会将 *Notification 常量
+/// 映射为 Notification.Name，勿在别处复制字符串字面量）。
+///   RunBeatAudioInterruptionRequiresPause → 中断结束需暂停
+///   RunBeatAudioStateChanged → 桥接可见状态（isRunning/isPaused）发生 Swift 未知的变化
+FOUNDATION_EXPORT NSString * const RunBeatAudioInterruptionRequiresPauseNotification;
+FOUNDATION_EXPORT NSString * const RunBeatAudioStateChangedNotification;
+
 /// Obj-C 桥接层 — 封装 C++ AudioEngine，供 Swift 调用
 @interface AudioEngineBridge : NSObject
 
 + (instancetype)shared;
 
-// ===== 初始化和清理 =====
+/// 由 +shared 调用一次；重复调用是幂等 no-op。
 - (void)initializeEngine;
 - (void)destroyEngine;
 
-// ===== 引擎生命周期 =====
 - (BOOL)startWithBpm:(double)bpm;
 - (void)stop;
 - (void)pause;
 - (BOOL)resume;
 
-// AudioSession interruption / route-change handling.
+/// AudioSession 中断 / 路由变化
 - (void)handleAudioInterruptionBegan;
 - (void)handleAudioInterruptionEndedShouldResume:(BOOL)shouldResume;
 - (void)handleAudioRouteChange;
 
-// ===== 运行时参数 =====
 - (void)setBpm:(double)bpm;
 - (void)setTickVolume:(double)vol;     // [0.0, 1.0]
 - (void)setChimeVolume:(double)vol;
 - (void)setAccent:(BOOL)on;
-- (void)setOutputGain:(double)gain;   // x1 / x2 / x3
+- (void)setOutputGain:(double)gain;    // x1 / x2 / x3
 
-// ===== 样本加载 =====
 - (BOOL)loadTickHiWithFileURL:(NSURL *)hiURL tickLo:(NSURL *)loURL;
 - (BOOL)loadChimeWithFileURL:(NSURL *)chimeURL;
 
-// ===== 事件触发 =====
+// PLANNED（整点报时）：Swift 层暂未接线，接口保留。
 - (void)triggerChime;
 
-// ===== 引擎状态 =====
 @property (nonatomic, readonly) BOOL isRunning;
 @property (nonatomic, readonly) BOOL isPaused;
-
-// ===== AudioUnit 回调入口（由 AudioUnitDriver 调用） =====
-- (void)onAudioCallback:(float *)outBuffer numFrames:(int)numFrames;
-
-// ===== 采样率同步 =====
-- (void)setSampleRate:(int)sr;
 
 @end
 

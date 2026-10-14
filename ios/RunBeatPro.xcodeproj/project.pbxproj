@@ -15,7 +15,6 @@
 		1FD52FC0626519A9A5DD565A /* Clap1.wav in Resources */ = {isa = PBXBuildFile; fileRef = C1D0421BBCC5C2CB4720A4F5 /* Clap1.wav */; };
 		309EE09203F94EB8745A4617 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D185F3CF0A88C1103362C5D /* AppState.swift */; };
 		32E7AA0A71C33EA15DDEF9D9 /* AudioEngineBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 02C6AF8EF423B009FA027DE4 /* AudioEngineBridge.mm */; };
-		4B6A6BAC97FFCFBF15A13857 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */; };
 		52A90C68E1D9F28412D131D1 /* Claves2.wav in Resources */ = {isa = PBXBuildFile; fileRef = F2B221309371ADDBF8E62FDF /* Claves2.wav */; };
 		6487B577134764A30F2306FB /* tick_hi.wav in Resources */ = {isa = PBXBuildFile; fileRef = 355DF0E85B4CBA5A43E16AC3 /* tick_hi.wav */; };
 		725D5B297A65DFCF1712CDF9 /* Claves1.wav in Resources */ = {isa = PBXBuildFile; fileRef = B7CF4AA417751551C9053F2A /* Claves1.wav */; };
@@ -61,7 +60,6 @@
 		63F115557A5A382E522A33C4 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		6EDABAF8571E58A073F42F3B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		71D7242570557E5956CB5224 /* RunBeatPro-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RunBeatPro-Bridging-Header.h"; sourceTree = "<group>"; };
-		7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
 		8E92343DF8005B572DAB92CB /* StartPauseButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartPauseButton.swift; sourceTree = "<group>"; };
 		8EC153B1BEB20B1EF6E027E6 /* zh */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = zh; path = zh.lproj/Localizable.strings; sourceTree = "<group>"; };
 		905042F8B9B6368FBC1858D9 /* AudioEngineBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioEngineBridge.h; sourceTree = "<group>"; };
@@ -200,7 +198,6 @@
 			isa = PBXGroup;
 			children = (
 				07E3BB321A37DA7F79E02F7E /* HapticManager.swift */,
-				7BC2019AACD99BF99C8994A5 /* PreferencesManager.swift */,
 				AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */,
 			);
 			path = Service;
@@ -368,7 +365,6 @@
 				7BDA3119BD0D9041525EAEC7 /* BPMDisplayView.swift in Sources */,
 				CAF7E2D74BF785106D1B0218 /* ContentView.swift in Sources */,
 				F95D825339A6A88B96941BCB /* HapticManager.swift in Sources */,
-				4B6A6BAC97FFCFBF15A13857 /* PreferencesManager.swift in Sources */,
 				AADA4512AEDF6F4B7D999C3B /* RemoteCommandManager.swift in Sources */,
 				CBDAD8CE47946B5AD2D314CC /* RunBeatProApp.swift in Sources */,
 				0BD1448C75F9D116892DF8B3 /* StartPauseButton.swift in Sources */,

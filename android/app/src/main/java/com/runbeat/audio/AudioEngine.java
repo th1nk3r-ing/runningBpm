@@ -45,8 +45,7 @@ public class AudioEngine {
     }
 
     // ========== JNI 探针 ==========
-
-    public static native String nativeHello();
+    // （nativeHello 探针已删除：全仓库无调用者。）
 
     // ========== 引擎生命周期 ==========
 
@@ -67,6 +66,10 @@ public class AudioEngine {
 
     public static native void nativeSetTickVolume(double vol);
 
+    /**
+     * 设置 chime 音量。
+     * PLANNED（整点报时）：当前 Java 层未接线，接口保留待启用。
+     */
     public static native void nativeSetChimeVolume(double vol);
 
     public static native void nativeSetAccent(boolean on);
@@ -86,12 +89,16 @@ public class AudioEngine {
 
     // ========== 事件触发 ==========
 
+    /**
+     * 触发一次整点 chime。
+     * PLANNED（整点报时）：当前 Java 层未接线，接口保留待启用。
+     */
     public static native void nativeTriggerChime();
 
     // ========== 监控 ==========
 
-    /** 获取 AAudio XRun 计数 */
-    public static native int nativeGetXRunCount();
+    // （nativeGetXRunCount 已删除：JNI 入口曾存在但无 Java 调用者；
+    //  真正的 XRun 上报见 doc/target.md。）
 
     /** 检查 AAudio 流是否因设备断开而死亡，如是则重建。由主线程定时调用。*/
     public static native boolean nativeRebuildStreamIfNeeded();

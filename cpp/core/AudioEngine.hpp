@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "Clock.hpp"
+#include "Constants.hpp"
 #include "SamplePlayer.hpp"
 #include "Limiter.hpp"
 
@@ -14,6 +15,50 @@ static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
               "Audio callback requires lock-free 64-bit atomics");
 static_assert(std::atomic<double>::is_always_lock_free,
               "Audio callback requires lock-free double atomics");
+
+/** 实时安全的静音填充 — callback 各静音出口共用。 */
+inline void WriteSilence(float* out, int numFrames) noexcept {
+    for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
+}
+
+/**
+ * RAII 守卫：把 OnAudioCallback 注册为"活跃 callback"，保证
+ * BeginSampleUpdate 能等待全部在途 callback 退出后再换样本。
+ *
+ * 内存序：
+ *   - 入口两次 seq_cst 读 loading_ + 一次 seq_cst fetch_add/fetch_sub 发生在
+ *     "看到 loading=true 之前"；第二个检查关闭了"更新在首次检查与发布计数之间
+ *     开始"的竞争窗口。
+ *   - TryEnter 成功后析构必然 seq_cst fetch_sub；失败路径（含第二次检查失败）
+ *     已在 TryEnter 内自减，不会再减。
+ */
+class RealtimeSection {
+public:
+    [[nodiscard]] bool TryEnter(std::atomic<bool>& loading,
+                                std::atomic<unsigned>& active) noexcept {
+        loading_ = &loading;
+        active_ = &active;
+        if (loading_->load(std::memory_order_seq_cst)) {  // seq_cst 确保看到最新值
+            return false;
+        }
+        active_->fetch_add(1, std::memory_order_seq_cst);
+        if (loading_->load(std::memory_order_seq_cst)) {
+            active_->fetch_sub(1, std::memory_order_seq_cst);
+            return false;
+        }
+        entered_ = true;
+        return true;
+    }
+
+    ~RealtimeSection() noexcept {
+        if (entered_) active_->fetch_sub(1, std::memory_order_seq_cst);
+    }
+
+private:
+    std::atomic<bool>* loading_ = nullptr;
+    std::atomic<unsigned>* active_ = nullptr;
+    bool entered_ = false;
+};
 
 /**
  * 音频引擎状态机 — 整合 Clock、SamplePlayer、Limiter 为完整 Pipeline。
@@ -157,24 +202,14 @@ public:
             ~CallbackReentryGuard() { active.clear(std::memory_order_release); }
         } callbackReentryGuard{callbackActive_};
 #endif
-        if (loading_.load(std::memory_order_seq_cst)) {    // seq_cst 确保看到最新值
-            for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
-            return;
-        }
-        activeCallbacks_.fetch_add(1, std::memory_order_seq_cst);
-        struct CallbackScope {
-            std::atomic<unsigned>& active;
-            ~CallbackScope() { active.fetch_sub(1, std::memory_order_seq_cst); }
-        } callbackScope{activeCallbacks_};
-
-        // Close the race where a sample update starts between the initial check
-        // and publishing this callback as active.
-        if (loading_.load(std::memory_order_seq_cst)) {
-            for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
+        // 样本更新闸门：更新期间（或未能成功发布 callback 计数时）输出静音。
+        RealtimeSection section;
+        if (!section.TryEnter(loading_, activeCallbacks_)) {
+            WriteSilence(out, numFrames);
             return;
         }
         if (state_.load(std::memory_order_acquire) != State::Running) {
-            for (int i = 0; i < numFrames; ++i) out[i] = 0.0f;
+            WriteSilence(out, numFrames);
             return;
         }
 
@@ -254,19 +289,19 @@ private:
     std::atomic_flag callbackActive_ = ATOMIC_FLAG_INIT;
     std::atomic<unsigned> pendingChimeTriggers_{0};
 
-    std::atomic<double> bpm_{180.0};
+    std::atomic<double> bpm_{beat::kDefaultBpm};
     std::atomic<std::uint64_t> startGeneration_{0};
     // 最新值请求；callback 之间的多次采样率更新会合并为最后一个值。
-    std::atomic<int> requestedSampleRate_{48000};
+    std::atomic<int> requestedSampleRate_{beat::kDefaultSampleRate};
     // 仅由 OnAudioCallback 所在线程访问。
     std::uint64_t appliedStartGeneration_ = 0;
-    int appliedSampleRate_ = 48000;
+    int appliedSampleRate_ = beat::kDefaultSampleRate;
     // 默认生成 click 峰值裁剪到 ±0.6；x1 时乘 0.7 后不超过 ±0.42（硬限幅阈值 ±0.97）。
-    std::atomic<double> tickGain_{0.7};
-    std::atomic<double> chimeGain_{0.5};
+    std::atomic<double> tickGain_{beat::kDefaultTickGain};
+    std::atomic<double> chimeGain_{beat::kDefaultChimeGain};
     std::atomic<bool> accentOn_{true};
     // 输出总倍率，叠加在 tick/chime 增益之上
-    std::atomic<double> outputGain_{1.0};
+    std::atomic<double> outputGain_{beat::kDefaultOutputGain};
 
     std::atomic<State> state_{State::Idle};
 };

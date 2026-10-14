@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "Constants.hpp"
+
 /**
  * 倒计数式节拍时钟 — 跨 buffer 维护连续倒计数，消除累积量化误差。
  *
@@ -17,7 +19,7 @@
  */
 class Clock {
 public:
-    explicit Clock(int sampleRate = 48000) noexcept
+    explicit Clock(int sampleRate = beat::kDefaultSampleRate) noexcept
         : sampleRate_(sampleRate) {
         UpdateFramesPerTick();
     }
@@ -67,11 +69,8 @@ public:
     /** 获取当前 BPM */
     [[nodiscard]] double GetBPM() const noexcept { return bpm_; }
 
-    /** 获取当前帧计数（只读，用于状态恢复） */
+    /** 读取剩余帧计数 — test-only：仅 clock_preserve_phase_test 用它断言相位状态。 */
     [[nodiscard]] double GetFramesToNextTick() const noexcept { return framesToNextTick_; }
-
-    /** 设置帧计数（用于 Resume 时保持连续） */
-    void SetFramesToNextTick(double f) noexcept { framesToNextTick_ = f; }
 
     /** 重置归零 */
     void Reset() noexcept {
@@ -93,8 +92,7 @@ public:
 
     /**
      * 处理 numFrames 个采样点，返回发生 tick 事件的帧索引数组。
-     * 注意：Process 内部堆分配，仅用于测试/离线处理，
-     *       音频回调中请使用 Advance()。
+     * test-only — 生产回调使用 Advance()（Process 内部堆分配，实时不安全）。
      * @param numFrames  本次回调的帧数
      * @return 所有发生 tick 的帧索引（0 ~ numFrames-1），已排序
      */
@@ -122,6 +120,6 @@ private:
 
     double framesPerTick_ = 0.0;
     double framesToNextTick_ = 0.0;
-    double bpm_ = 180.0;
-    int sampleRate_ = 48000;
+    double bpm_ = beat::kDefaultBpm;
+    int sampleRate_ = beat::kDefaultSampleRate;
 };

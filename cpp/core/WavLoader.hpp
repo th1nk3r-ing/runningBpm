@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 #include <vector>
 #include <cstring>
@@ -102,27 +103,19 @@ public:
     [[nodiscard]] const std::vector<float>& GetSamples() const { return samples_; }
     [[nodiscard]] int GetSampleRate() const { return sampleRate_; }
 
-private:
-    void Reset() {
-        samples_.clear();
-        sampleRate_ = 0;
-    }
-
-    static uint32_t Read32(const uint8_t* data, size_t pos) {
-        return static_cast<uint32_t>(data[pos])
-             | (static_cast<uint32_t>(data[pos + 1]) << 8)
-             | (static_cast<uint32_t>(data[pos + 2]) << 16)
-             | (static_cast<uint32_t>(data[pos + 3]) << 24);
-    }
-
-    static uint16_t Read16(const uint8_t* data, size_t pos) {
-        return static_cast<uint16_t>(data[pos])
-             | (static_cast<uint16_t>(data[pos + 1]) << 8);
-    }
-
-    /** 线性重采样 */
+    /**
+     * 线性重采样（公用：采样率变化后重新重采样已加载样本）。
+     * @param inRate 输入采样率；outRate 输出采样率。非正值或相等率（恒等）时
+     *   原样返回输入，避免 ratio=inf/NaN —— 非法输入视作防御性失败而非崩溃。
+     */
     static std::vector<float> Resample(
             const std::vector<float>& input, int inRate, int outRate) {
+        if (inRate <= 0 || outRate <= 0) {
+            assert(inRate > 0 && outRate > 0 && "Resample requires positive sample rates");
+            return input;
+        }
+        if (inRate == outRate) return input;
+
         double ratio = static_cast<double>(inRate) / outRate;
         size_t outLen = static_cast<size_t>(input.size() / ratio);
         std::vector<float> output(outLen);
@@ -142,6 +135,24 @@ private:
         return output;
     }
 
+private:
+    void Reset() {
+        samples_.clear();
+        sampleRate_ = 0;
+    }
+
+    static uint32_t Read32(const uint8_t* data, size_t pos) {
+        return static_cast<uint32_t>(data[pos])
+             | (static_cast<uint32_t>(data[pos + 1]) << 8)
+             | (static_cast<uint32_t>(data[pos + 2]) << 16)
+             | (static_cast<uint32_t>(data[pos + 3]) << 24);
+    }
+
+    static uint16_t Read16(const uint8_t* data, size_t pos) {
+        return static_cast<uint16_t>(data[pos])
+             | (static_cast<uint16_t>(data[pos + 1]) << 8);
+    }
+
     std::vector<float> samples_;
     int sampleRate_ = 0;
 };
@@ -152,7 +163,6 @@ struct WavGenerator {
     /** 将 float PCM 采样数据编码为 16-bit mono WAV 文件字节流 */
     static std::vector<uint8_t> Generate(const std::vector<float>& samples,
                                           int sampleRate) {
-        // 转为 16-bit PCM
         std::vector<int16_t> pcm(samples.size());
         for (size_t i = 0; i < samples.size(); ++i) {
             float s = std::max(-1.0f, std::min(1.0f, samples[i]));
@@ -200,19 +210,6 @@ struct WavGenerator {
         }
 
         return wav;
-    }
-
-    /** 生成 tick 采样数据 */
-    static std::vector<float> MakeTick(int sampleRate, float freq,
-                                        float durationSec, float decay) {
-        int length = static_cast<int>(sampleRate * durationSec);
-        std::vector<float> data(length);
-        for (int i = 0; i < length; ++i) {
-            float t = static_cast<float>(i) / sampleRate;
-            data[i] = std::sin(2.0f * 3.14159265f * freq * t)
-                    * std::exp(-t * decay);
-        }
-        return data;
     }
 
     /**

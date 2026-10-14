@@ -39,13 +39,13 @@ $$\Delta\phi = \frac{BPM}{60.0 \cdot sampleRate}$$
 
 ```text
 [相位事件触发] ──→ [Tick 采样播放器] ──→ [Gain] ──╮
-                                                    ├──→ [Mixer] ──→ [Soft Limiter] ──→ [Output]
+                                                    ├──→ [内联混音] ──→ [硬限幅 ±0.97] ──→ [Output]
 [事件触发] ────→ [Chime 采样播放器] ──→ [Gain] ──╯
 ```
 
 * **事件驱动播放**：Tick 由相位累加器触发，Chime（整点报时等）由外部异步事件触发。每个播放器维护独立的读指针，播放完毕后输出静音。
-* **Mixer**：支持独立音量调整。公式：$S_{out} = (S_{tick} \cdot G_{m}) + (S_{chime} \cdot G_{c})$。
-* **Soft Limiter**：在输出前应用 $\tanh$ 或手动实现 `clamp`，防止多声源叠加导致的数字削波。
+* **内联混音**：在 `AudioEngine::OnAudioCallback` 的逐帧循环内混音（引擎不经过独立的 `Mixer` 组件，`Mixer.hpp` 仅供测试使用）。公式：$S_{out} = (S_{tick} \cdot G_{m}) + (S_{chime} \cdot G_{c})$。
+* **硬限幅**：`Limiter::ProcessHard` 在输出前将峰值 clamp 到 ±0.97，保留 click 瞬态（`Limiter::Process` tanh 软限幅仅测试使用）。
 * **资源预处理**：音频素材（WAV）在加载阶段即重采样至硬件原生采样率（如 48kHz），避免实时重采样损耗。
 
 ---

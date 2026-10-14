@@ -148,11 +148,12 @@ final class AppState {
     // MARK: - Lifecycle
 
     private var audioInterruptionObserver: NSObjectProtocol?
+    private var audioStateChangeObserver: NSObjectProtocol?
 
     init() {
         loadPersistedState()
         audioInterruptionObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("AudioInterruptionRequiresPauseNotification"),
+            forName: NSNotification.Name.RunBeatAudioInterruptionRequiresPause,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -165,11 +166,35 @@ final class AppState {
             )
             self.cancelAutoLock()
         }
+        // 桥接内部转态（如静默流恢复的退避重试成功后真正起声）对 Swift 不可见，
+        // 需借通知拉齐 isRunning/isPaused，否则 UI 会停在停止/暂停而音频已在播放。
+        audioStateChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.RunBeatAudioStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let bridge = AudioEngineBridge.shared()
+            let running = bridge.isRunning
+            let paused = bridge.isPaused
+            guard running != self.isRunning || paused != self.isPaused else { return }
+            self.isRunning = running
+            self.isPaused = paused
+            if running && !paused {
+                self.scheduleAutoLock()
+            } else {
+                self.cancelAutoLock()
+            }
+            self.updateNowPlaying()
+        }
     }
 
     deinit {
         if let audioInterruptionObserver {
             NotificationCenter.default.removeObserver(audioInterruptionObserver)
+        }
+        if let audioStateChangeObserver {
+            NotificationCenter.default.removeObserver(audioStateChangeObserver)
         }
     }
 

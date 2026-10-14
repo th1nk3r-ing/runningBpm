@@ -70,7 +70,6 @@ public:
         voices_[target].playing.store(true, std::memory_order_release);
     }
 
-    /** 停止所有 voice */
     void Stop() noexcept {
         for (auto& v : voices_) {
             v.playing.store(false, std::memory_order_release);
@@ -109,7 +108,8 @@ public:
         return acc;
     }
 
-    /** 渲染 numFrames 帧到 out 缓冲区（带 gain），用于离线测试 */
+    /** 渲染 numFrames 帧到 out 缓冲区（带 gain），用于离线测试
+     *  test-only — 生产链路在 AudioEngine::OnAudioCallback 内联使用 ReadOne()。 */
     void Render(float* out, int numFrames, float gain) noexcept {
         for (int i = 0; i < numFrames; ++i) {
             out[i] = ReadOne() * gain;

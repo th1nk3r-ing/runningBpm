@@ -5,13 +5,14 @@
  * 输出：../android/app/src/main/assets/sounds/default/tick_hi.wav, tick_lo.wav, chime.wav
  */
 
+#include "core/Constants.hpp"
 #include "core/WavLoader.hpp"
 #include <cstdio>
 #include <fstream>
 #include <string>
 
 int main() {
-    constexpr int kSampleRate = 48000;
+    constexpr int kSampleRate = beat::kDefaultSampleRate;
 
     auto tickHi = WavGenerator::MakeWoodTick(kSampleRate, true);
     auto wavHi = WavGenerator::Generate(tickHi, kSampleRate);

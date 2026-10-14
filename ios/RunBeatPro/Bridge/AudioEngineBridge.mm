@@ -2,240 +2,357 @@
 
 // C++ Core — 直接复用
 #include "AudioEngine.hpp"
+#include "Constants.hpp"
 #include "WavLoader.hpp"
 
-#import <AVFoundation/AVFoundation.h>
+#import <AudioUnit/AudioUnit.h>
+#import <AudioToolbox/AudioToolbox.h>
 
-static NSString *const kAudioInterruptionRequiresPauseNotification =
+// 通知名 — clang importer 将 *Notification 常量映射为 Notification.Name 供 Swift 使用
+NSString * const RunBeatAudioInterruptionRequiresPauseNotification =
         @"AudioInterruptionRequiresPauseNotification";
+NSString * const RunBeatAudioStateChangedNotification =
+        @"AudioStateChangedNotification";
 
-// ============================================================================
-// 前向声明 — AudioUnitDriver 由 AudioEngineBridge 管理生命周期
-// ============================================================================
+// 全局 C++ 引擎单例（进程级生命期）
+static AudioEngine gEngine;
+
+// RemoteIO 的 output bus 索引
+static constexpr UInt32 kOutputBus = 0;
+
+// 已加载样本与负载时采样率追踪。ARC 不允许非平凡 C++ 对象作 ivar，而桥接是
+// 进程级单例，与 gEngine 一致放文件作用域。硬件采样率变化（路由切换）时据此
+// 重采样（WAV 资产）或重新生成（fallback），节拍间隔由 Clock 保持不受影响。
+static std::vector<float> gTickHiSamples;
+static std::vector<float> gTickLoSamples;
+static std::vector<float> gChimeSamples;
+static bool gHaveChimeSamples = false;
+static int gSamplesLoadedSampleRate = 0;
+static bool gUseAssetSamples = false;  // false = 仅生成式 fallback tick
+
 @interface AudioUnitDriver : NSObject
-- (instancetype)initWithBridge:(AudioEngineBridge *)bridge;
+- (instancetype)init;
 - (BOOL)_createAudioUnit;
 - (BOOL)start;
 - (void)stop;
-- (void)setSampleRate:(int)sr;
 @property (nonatomic, readonly) int sampleRate;
 @property (nonatomic, readonly, getter=isReady) BOOL ready;
 @end
 
-@interface AudioEngineBridge ()
-- (void)_scheduleStreamRebuildRetry;
-- (void)_cancelStreamRebuildRetry;
-@end
+// 播放意图 — 显式 want-to-run 状态，取代由 _isRunning && !_isPaused 反推。
+// 这是 start 失败后能够进入退避重试的关键：intent=Running 时重试会重启流。
+typedef NS_ENUM(NSUInteger, PlaybackIntent) {
+    PlaybackIntentIdle,     // stopped：不再做任何恢复/重试
+    PlaybackIntentRunning,  // want-to-run：流重建后必须启动 driver（失败→退避重试）
+    PlaybackIntentPaused,   // 用户暂停：流重建但不启动 driver
+};
 
-// ============================================================================
-// C++ 全局引擎实例（单例）
-// ============================================================================
-static AudioEngine gEngine;
-
-// kOutputBus — RemoteIO 的 output bus 索引
-static constexpr UInt32 kOutputBus = 0;
-
-// ============================================================================
-// AudioEngineBridge 实现
-// ============================================================================
 @implementation AudioEngineBridge {
     AudioUnitDriver *_driver;
+    int _sampleRate;
+
+    // 播放意图 + 可见状态镜像（Swift 侧 isRunning/isPaused）
+    PlaybackIntent _playbackIntent;
     BOOL _isRunning;
     BOOL _isPaused;
-    int _sampleRate;
-    double _currentBpm;
-    BOOL _streamRecoveryRequested;
+
+    // 流重建退避重试
     BOOL _needsStreamRebuild;
     BOOL _rebuildRetryScheduled;
     NSUInteger _rebuildRetryAttempts;
     NSUInteger _rebuildRetryGeneration;
+
+    // initializeEngine 幂等闸门：只在 +shared 路径执行一次（publish-once），
+    // 二次调用不得用硬编码默认值覆盖已持久化的音量/accent。
+    BOOL _initializeEngineCalled;
+
+    // 所有桥接可变状态的唯一串行队列
+    dispatch_queue_t _stateQueue;
 }
 
-// --------------------------------------------------------------------------
-// 单例
-// --------------------------------------------------------------------------
 + (instancetype)shared {
     static AudioEngineBridge *instance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        instance = [[self alloc] _init];
+        instance = [[self alloc] init];
     });
     return instance;
 }
 
-- (instancetype)_init {
+- (instancetype)init {
     self = [super init];
     if (self) {
-        _sampleRate = 48000;
-        _currentBpm = 180.0;
-        _needsStreamRebuild = NO;
+        _sampleRate = beat::kDefaultSampleRate;
+        _playbackIntent = PlaybackIntentIdle;
+        _stateQueue = dispatch_queue_create("com.runbeat.bridge.state", DISPATCH_QUEUE_SERIAL);
         [self initializeEngine];
     }
     return self;
 }
 
-// --------------------------------------------------------------------------
-// 初始化和清理
-// --------------------------------------------------------------------------
+/// 幂等初始化：只执行一次，重复调用直接返回（避免覆盖持久化设置）。
 - (void)initializeEngine {
-    gEngine.SetSampleRate(_sampleRate);
-    gEngine.SetTickVolume(0.7);
-    gEngine.SetChimeVolume(0.5);
-    gEngine.SetOutputGain(1.0);
-    gEngine.SetAccent(true);
+    [self _syncState:^() {
+        if (self->_initializeEngineCalled) return;
+        self->_initializeEngineCalled = YES;
 
-    // 生成 fallback 木鱼采样（WAV 加载失败时使用）
-    std::vector<float> tickHi = WavGenerator::MakeWoodTick(_sampleRate, true);
-    std::vector<float> tickLo = WavGenerator::MakeWoodTick(_sampleRate, false);
-    gEngine.LoadTickSamples(tickHi.data(), tickHi.size());
-    gEngine.LoadTickLoSamples(tickLo.data(), tickLo.size());
+        gEngine.SetSampleRate(self->_sampleRate);
+        gEngine.SetTickVolume(beat::kDefaultTickGain);
+        gEngine.SetChimeVolume(beat::kDefaultChimeGain);
+        gEngine.SetOutputGain(beat::kDefaultOutputGain);
+        gEngine.SetAccent(true);
 
-    // 创建 AudioUnit 驱动（只 Open，等待 Start 才启动音频）
-    _driver = [[AudioUnitDriver alloc] initWithBridge:self];
+        // fallback 木鱼采样（WAV 加载失败时使用；WAV 成功加载后覆盖）
+        [self _regenerateFallbackTicksAtSampleRate:self->_sampleRate];
 
-    NSLog(@"[AudioEngineBridge] initialized (sampleRate=%d)", _sampleRate);
+        // 创建 AudioUnit 驱动（只 Open，等待 Start 才启动音频）
+        self->_driver = [[AudioUnitDriver alloc] init];
+
+        // 同步驱动实际采样率（与路由变化路径对称），避免首次路由变化前
+        // 引擎时钟停在假设的 48000 上；同时按实际率重制样本。
+        if (self->_driver.ready && self->_driver.sampleRate > 0) {
+            [self setSampleRateInternal:self->_driver.sampleRate];
+        }
+
+        NSLog(@"[AudioEngineBridge] initialized (sampleRate=%d)", self->_sampleRate);
+    }];
 }
 
+// 进程级生命期是刻意的：gEngine 与 driver 由单例持有，App 退出时释放。
+/// 如需手动释放（例如 AppExtension 场景）可调用本方法；App 内不会调用。
 - (void)destroyEngine {
-    [self _cancelStreamRebuildRetry];
-    _streamRecoveryRequested = NO;
-    [_driver stop];
-    _driver = nil;
-    gEngine.Stop();
-    NSLog(@"[AudioEngineBridge] destroyed");
+    [self _syncState:^() {
+        [self->_driver stop];
+        self->_driver = nil;
+        gEngine.Stop();
+        self->_playbackIntent = PlaybackIntentIdle;
+        self->_isRunning = NO;
+        self->_isPaused = NO;
+        [self _cancelStreamRebuildRetryLocked];
+        NSLog(@"[AudioEngineBridge] destroyed");
+    }];
 }
 
 // --------------------------------------------------------------------------
-// 引擎生命周期
+// 引擎生命周期（意图驱动的状态机）
 // --------------------------------------------------------------------------
+
 - (BOOL)startWithBpm:(double)bpm {
-    _currentBpm = bpm;
-    _streamRecoveryRequested = YES;
-    gEngine.Start(bpm);
-    if (![_driver start]) {
-        gEngine.Stop();
-        _isRunning = NO;
-        _isPaused = NO;
-        _streamRecoveryRequested = NO;
-        _needsStreamRebuild = YES;
-        [self handleAudioRouteChange];
-        return NO;
-    }
-    _isRunning = YES;
-    _isPaused = NO;
-    _needsStreamRebuild = NO;
-    [self _cancelStreamRebuildRetry];
-    NSLog(@"[AudioEngineBridge] start(%.1f)", bpm);
-    return YES;
+    BOOL ok = [self _syncStateReturning:^BOOL() {
+        self->_playbackIntent = PlaybackIntentRunning;
+        gEngine.Start(bpm);
+
+        // driver 建立/启动失败：意图仍为 Running —— 退避重试会重建流并重启。
+        // 此处不 gEngine.Stop()：引擎保持 Running，成功重试即可直接出声；
+        // stop/pause 会取消重试并转入 Idle/Paused。成功路径无需通知：Swift
+        // 依据返回值自行镜像 isRunning/isPaused。
+        if (![self _attemptStreamRestartLockedWithNotify:NO]) {
+            self->_isRunning = NO;
+            self->_isPaused = NO;
+            return NO;
+        }
+        NSLog(@"[AudioEngineBridge] start(%.1f)", bpm);
+        return YES;
+    }];
+    return ok;
 }
 
 - (void)stop {
-    gEngine.Stop();
-    [_driver stop];
-    _isRunning = NO;
-    _isPaused = NO;
-    _streamRecoveryRequested = NO;
-    [self _cancelStreamRebuildRetry];
-    NSLog(@"[AudioEngineBridge] stop");
+    [self _syncState:^() {
+        self->_playbackIntent = PlaybackIntentIdle;
+        gEngine.Stop();
+        [self->_driver stop];
+        self->_isRunning = NO;
+        self->_isPaused = NO;
+        [self _cancelStreamRebuildRetryLocked];
+        NSLog(@"[AudioEngineBridge] stop");
+    }];
 }
 
 - (void)pause {
-    gEngine.Pause();
-    [_driver stop];
-    _isPaused = YES;
-    _streamRecoveryRequested = NO;
-    [self _cancelStreamRebuildRetry];
-    NSLog(@"[AudioEngineBridge] pause");
+    [self _syncState:^() {
+        self->_playbackIntent = PlaybackIntentPaused;
+        gEngine.Pause();
+        [self->_driver stop];
+        self->_isPaused = YES;
+        [self _cancelStreamRebuildRetryLocked];
+        NSLog(@"[AudioEngineBridge] pause");
+    }];
 }
 
 - (BOOL)resume {
-    _streamRecoveryRequested = YES;
-    gEngine.Resume();
-    if (![_driver start]) {
-        gEngine.Pause();
-        _isPaused = YES;
-        _needsStreamRebuild = YES;
-        [self handleAudioRouteChange];
-        return NO;
-    }
-    _isPaused = NO;
-    _needsStreamRebuild = NO;
-    [self _cancelStreamRebuildRetry];
-    NSLog(@"[AudioEngineBridge] resume");
-    return YES;
+    BOOL ok = [self _syncStateReturning:^BOOL() {
+        self->_playbackIntent = PlaybackIntentRunning;
+        gEngine.Resume();
+        // 重试链路会先 gEngine.Resume() 再启 driver；成功即回到 Running/未暂停。
+        return [self _attemptStreamRestartLockedWithNotify:NO];
+    }];
+    return ok;
 }
 
 - (void)handleAudioInterruptionBegan {
-    if (_isRunning && !_isPaused) {
-        [_driver stop];
-        [self _cancelStreamRebuildRetry];
-    }
+    [self _syncState:^() {
+        if (self->_isRunning && !self->_isPaused) {
+            [self->_driver stop];
+            [self _cancelStreamRebuildRetryLocked];
+        }
+    }];
 }
 
 - (void)handleAudioInterruptionEndedShouldResume:(BOOL)shouldResume {
-    if (!_isRunning || _isPaused) return;
-    if (!shouldResume) {
-        gEngine.Pause();
-        [_driver stop];
-        _isPaused = YES;
-        _streamRecoveryRequested = NO;
-        [self _cancelStreamRebuildRetry];
-        [[NSNotificationCenter defaultCenter]
-                postNotificationName:kAudioInterruptionRequiresPauseNotification
-                              object:self];
-        return;
-    }
-    if (![_driver start]) {
-        _needsStreamRebuild = YES;
-        [self handleAudioRouteChange];
-    }
+    [self _syncState:^() {
+        if (!self->_isRunning || self->_isPaused) return;
+        if (!shouldResume) {
+            self->_playbackIntent = PlaybackIntentPaused;
+            gEngine.Pause();
+            [self->_driver stop];
+            self->_isPaused = YES;
+            [self _cancelStreamRebuildRetryLocked];
+            // 此转态源于系统事件，Swift 无法从调用返回值得知 → 显式通知。
+            [[NSNotificationCenter defaultCenter]
+                    postNotificationName:RunBeatAudioInterruptionRequiresPauseNotification
+                                  object:self];
+            return;
+        }
+        if (![self->_driver start]) {
+            self->_needsStreamRebuild = YES;
+            [self _attemptStreamRestartLockedWithNotify:NO];
+        }
+    }];
 }
 
 - (void)handleAudioRouteChange {
-    const BOOL shouldResume = _isRunning && !_isPaused;
-    [_driver stop];
-    _driver = nil;
-    _driver = [[AudioUnitDriver alloc] initWithBridge:self];
-    if (_driver.ready && _driver.sampleRate > 0) [self setSampleRate:_driver.sampleRate];
-
-    if (!_driver.ready || (shouldResume && ![_driver start])) {
-        _needsStreamRebuild = YES;
-        [self _scheduleStreamRebuildRetry];
-    } else {
-        _needsStreamRebuild = NO;
-        _rebuildRetryAttempts = 0;
-    }
+    [self _syncState:^() {
+        [self _attemptStreamRestartLockedWithNotify:YES];
+    }];
 }
 
-- (void)_scheduleStreamRebuildRetry {
-    if (!_needsStreamRebuild || !_streamRecoveryRequested || _rebuildRetryScheduled) return;
-    _rebuildRetryScheduled = YES;
-    const NSUInteger retryGeneration = ++_rebuildRetryGeneration;
-    const NSUInteger shift = MIN(_rebuildRetryAttempts, (NSUInteger)5);
+// --------------------------------------------------------------------------
+// 状态机内部实现（必须在 _stateQueue 上运行，方法名 Locked 后缀即此约定）
+// --------------------------------------------------------------------------
+
+/// 确保 driver 可用并按 _playbackIntent 启动。
+/// 复用健康 driver（ready 且能 start）而非每次重建；只有 driver 缺失或 !ready
+/// 时才重新创建。start 失败的 driver 视为可疑，一并丢弃，让退避重试重建。
+/// 返回 NO 时登记 _needsStreamRebuild 并安排退避重试（不会静默放弃恢复）。
+///
+/// @param notify 同步通知：直接由 start/resume 调用时为 NO（Swift 依据返回值
+///   自行镜像）；内部路径（退避重试、路由变化、中断结尾）为 YES —— 这些路径
+///   的可见状态变化 Swift 无法通过返回值得知，必须投递
+///   RunBeatAudioStateChangedNotification。仅在 isRunning/isPaused 真变化时通知。
+- (BOOL)_attemptStreamRestartLockedWithNotify:(BOOL)notify {
+    const BOOL oldRunning = self->_isRunning;
+    const BOOL oldPaused = self->_isPaused;
+
+    if (self->_driver == nil || !self->_driver.ready) {
+        self->_driver = nil;
+        self->_driver = [[AudioUnitDriver alloc] init];
+    }
+
+    // driver 的 sampleRate 每次取实时值：路由切换可改变硬件实际率，复用的
+    // driver 也必须重新协商，并按新率重采样/重生成已载样本。
+    if (self->_driver.ready && self->_driver.sampleRate > 0) {
+        [self setSampleRateInternal:self->_driver.sampleRate];
+    }
+
+    if (!self->_driver.ready) {
+        self->_needsStreamRebuild = YES;
+        [self _scheduleStreamRebuildRetryLocked];
+        return NO;
+    }
+
+    if (self->_playbackIntent == PlaybackIntentRunning) {
+        // 位于 retry 链路时恢复引擎（Resume：Paused→Running；已 Running 则 no-op）
+        gEngine.Resume();
+        if (![self->_driver start]) {
+            // AudioOutputUnitStart 失败的 driver 不可复用：丢弃让重试重建，
+            // 否则会永远复用一个打不开的 driver。
+            [self->_driver stop];
+            self->_driver = nil;
+            self->_needsStreamRebuild = YES;
+            [self _scheduleStreamRebuildRetryLocked];
+            return NO;
+        }
+    } else {
+        // Paused/Idle：保持 driver 不出声（与“先 stop 再按意图决定是否启动”一致）
+        [self->_driver stop];
+    }
+
+    // 成功：driver ready，且（意图为 Running 时）已成功启动。
+    self->_needsStreamRebuild = NO;
+    self->_rebuildRetryAttempts = 0;
+    self->_rebuildRetryScheduled = NO;
+    if (self->_playbackIntent == PlaybackIntentRunning) {
+        self->_isRunning = YES;
+        self->_isPaused = NO;
+        if (notify && (!oldRunning || oldPaused)) {
+            // 内部转态（如静默恢复重试成功）：Swift 侧的 isRunning/isPaused
+            // 需要被拉齐，否则 UI 会停在 stopped/paused 而音频已在播放。
+            [[NSNotificationCenter defaultCenter]
+                    postNotificationName:RunBeatAudioStateChangedNotification
+                                  object:self];
+        }
+    }
+    return YES;
+}
+
+- (void)_scheduleStreamRebuildRetryLocked {
+    if (!self->_needsStreamRebuild
+        || self->_playbackIntent != PlaybackIntentRunning
+        || self->_rebuildRetryScheduled
+    ) {
+        return;
+    }
+    self->_rebuildRetryScheduled = YES;
+    const NSUInteger retryGeneration = ++self->_rebuildRetryGeneration;
+    const NSUInteger shift = MIN(self->_rebuildRetryAttempts, (NSUInteger)5);
     const NSTimeInterval delay = MIN((NSTimeInterval)(1U << shift), 30.0);
-    if (_rebuildRetryAttempts < 6) ++_rebuildRetryAttempts;
+    if (self->_rebuildRetryAttempts < 6) ++self->_rebuildRetryAttempts;
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                  (int64_t)(delay * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
+                   self->_stateQueue, ^{
         if (retryGeneration != self->_rebuildRetryGeneration) return;
         self->_rebuildRetryScheduled = NO;
-        if (self->_needsStreamRebuild && self->_streamRecoveryRequested) {
-            [self handleAudioRouteChange];
+        if (self->_needsStreamRebuild && self->_playbackIntent == PlaybackIntentRunning) {
+            // 内部重试路径：成功后的可见状态变化必须通知 Swift。
+            [self _attemptStreamRestartLockedWithNotify:YES];
         }
     });
 }
 
-- (void)_cancelStreamRebuildRetry {
-    ++_rebuildRetryGeneration;
-    _rebuildRetryScheduled = NO;
-    _rebuildRetryAttempts = 0;
-    _needsStreamRebuild = NO;
+- (void)_cancelStreamRebuildRetryLocked {
+    ++self->_rebuildRetryGeneration;
+    self->_rebuildRetryScheduled = NO;
+    self->_rebuildRetryAttempts = 0;
+    self->_needsStreamRebuild = NO;
+}
+
+// --------------------------------------------------------------------------
+// _stateQueue 同步包装
+// --------------------------------------------------------------------------
+
+// dispatch_assert_queue_not：若未来某路径在 _stateQueue 上重入 dispatch_sync
+// 将必然死锁 —— 在 Debug/Release 均以断言提前暴露（iOS 11+ / min target 17）。
+- (void)_syncState:(dispatch_block_t)block {
+    dispatch_assert_queue_not(self->_stateQueue);
+    dispatch_sync(self->_stateQueue, block);
+}
+
+- (BOOL)_syncStateReturning:(BOOL (^)())block {
+    dispatch_assert_queue_not(self->_stateQueue);
+    __block BOOL out;
+    dispatch_sync(self->_stateQueue, ^{
+        out = block();
+    });
+    return out;
 }
 
 // --------------------------------------------------------------------------
 // 运行时参数
 // --------------------------------------------------------------------------
+
+// setter 只写 gEngine 的无锁原子量，不触碰桥接状态机，无需入队。
 - (void)setBpm:(double)bpm {
     gEngine.SetBpm(bpm);
 }
@@ -244,6 +361,8 @@ static constexpr UInt32 kOutputBus = 0;
     gEngine.SetTickVolume(vol);
 }
 
+// iOS 侧 chime API（loadChimeWithFileURL/triggerChime）是 PLANNED 功能
+// （整点报时），Swift 层暂无调用，接口保留。
 - (void)setChimeVolume:(double)vol {
     gEngine.SetChimeVolume(vol);
 }
@@ -259,37 +378,53 @@ static constexpr UInt32 kOutputBus = 0;
 // --------------------------------------------------------------------------
 // 样本加载 (WAV → C++引擎)
 // --------------------------------------------------------------------------
+
 - (BOOL)loadTickHiWithFileURL:(NSURL *)hiURL tickLo:(NSURL *)loURL {
-    std::vector<float> hiSamples;
-    std::vector<float> loSamples;
+    BOOL ok = [self _syncStateReturning:^BOOL() {
+        std::vector<float> hiSamples;
+        std::vector<float> loSamples;
 
-    BOOL hiOk = [self _loadWavFromURL:hiURL into:&hiSamples];
-    BOOL loOk = [self _loadWavFromURL:loURL into:&loSamples];
+        BOOL hiOk = [self _loadWavFromURL:hiURL into:&hiSamples];
+        BOOL loOk = [self _loadWavFromURL:loURL into:&loSamples];
 
-    if (!hiOk || hiSamples.empty()) {
-        NSLog(@"[AudioEngineBridge] WARNING: failed to load tickHi, using fallback");
-        hiSamples = WavGenerator::MakeWoodTick(_sampleRate, true);
-    }
-    if (!loOk || loSamples.empty()) {
-        NSLog(@"[AudioEngineBridge] WARNING: failed to load tickLo, reusing tickHi");
-        loSamples = hiSamples;
-    }
+        if (!hiOk || hiSamples.empty()) {
+            NSLog(@"[AudioEngineBridge] WARNING: failed to load tickHi, using fallback");
+            hiSamples = WavGenerator::MakeWoodTick(self->_sampleRate, true);
+        }
+        if (!loOk || loSamples.empty()) {
+            NSLog(@"[AudioEngineBridge] WARNING: failed to load tickLo, reusing tickHi");
+            loSamples = hiSamples;
+        }
 
-    gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
-                           loSamples.data(), loSamples.size());
-    return hiOk && loOk;
-}
-
-- (BOOL)loadChimeWithFileURL:(NSURL *)chimeURL {
-    std::vector<float> samples;
-    BOOL ok = [self _loadWavFromURL:chimeURL into:&samples];
-    if (ok && !samples.empty()) {
-        gEngine.LoadChimeSamples(samples.data(), samples.size());
-    }
+        gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
+                              loSamples.data(), loSamples.size());
+        gTickHiSamples = hiSamples;
+        gTickLoSamples = loSamples;
+        // 只有资产真正加载成功 (hiOk && loOk) 才走“重采样”恢复分支；混入
+        // 生成式 fallback 时置 false，令采样率变化按新率重新生成而非重采样。
+        gUseAssetSamples = hiOk && loOk;
+        gSamplesLoadedSampleRate = self->_sampleRate;
+        return hiOk && loOk;
+    }];
     return ok;
 }
 
-/// 从 bundle URL 加载 WAV 并重采样至引擎采样率
+- (BOOL)loadChimeWithFileURL:(NSURL *)chimeURL {
+    BOOL ok = [self _syncStateReturning:^BOOL() {
+        std::vector<float> samples;
+        BOOL loaded = [self _loadWavFromURL:chimeURL into:&samples];
+        if (loaded && !samples.empty()) {
+            gEngine.LoadChimeSamples(samples.data(), samples.size());
+            gChimeSamples = samples;
+            gHaveChimeSamples = true;
+            gSamplesLoadedSampleRate = self->_sampleRate;
+        }
+        return loaded;
+    }];
+    return ok;
+}
+
+/// 从 bundle URL 加载 WAV 并重采样至引擎采样率（须在 _stateQueue 上调用）
 - (BOOL)_loadWavFromURL:(NSURL *)url into:(std::vector<float> *)outSamples {
     if (!url) return NO;
 
@@ -314,6 +449,7 @@ static constexpr UInt32 kOutputBus = 0;
 // --------------------------------------------------------------------------
 // 事件触发
 // --------------------------------------------------------------------------
+
 - (void)triggerChime {
     gEngine.TriggerChime();
 }
@@ -321,38 +457,60 @@ static constexpr UInt32 kOutputBus = 0;
 // --------------------------------------------------------------------------
 // 引擎状态查询
 // --------------------------------------------------------------------------
-- (BOOL)isRunning { return _isRunning; }
-- (BOOL)isPaused  { return _isPaused; }
-
-// --------------------------------------------------------------------------
-// 音频回调入口（AudioUnit 渲染线程调用，必须实时安全）
-// --------------------------------------------------------------------------
-- (void)onAudioCallback:(float *)outBuffer numFrames:(int)numFrames {
-    gEngine.OnAudioCallback(outBuffer, numFrames);
+- (BOOL)isRunning {
+    return [self _syncStateReturning:^BOOL() { return _isRunning; }];
+}
+- (BOOL)isPaused  {
+    return [self _syncStateReturning:^BOOL() { return _isPaused; }];
 }
 
-// --------------------------------------------------------------------------
-// 采样率同步
-// --------------------------------------------------------------------------
-- (void)setSampleRate:(int)sr {
-    if (sr == _sampleRate) return;
-    _sampleRate = sr;
+// 采样率同步（须在 _stateQueue 上调用）：同时按新率重载已载样本。
+- (void)setSampleRateInternal:(int)sr {
+    if (sr == self->_sampleRate) return;
+    self->_sampleRate = sr;
     gEngine.SetSampleRate(sr);
+    if (gSamplesLoadedSampleRate > 0 && gSamplesLoadedSampleRate != sr) {
+        [self _reloadSamplesAtSampleRate:sr];
+    }
 }
 
-// --------------------------------------------------------------------------
-// 流重建
-// --------------------------------------------------------------------------
+- (void)_reloadSamplesAtSampleRate:(int)sampleRate {
+    if (gUseAssetSamples) {
+        gTickHiSamples = WavLoader::Resample(gTickHiSamples, gSamplesLoadedSampleRate, sampleRate);
+        gTickLoSamples = WavLoader::Resample(gTickLoSamples, gSamplesLoadedSampleRate, sampleRate);
+        gEngine.LoadSoundPack(gTickHiSamples.data(), gTickHiSamples.size(),
+                              gTickLoSamples.data(), gTickLoSamples.size());
+        if (gHaveChimeSamples) {
+            gChimeSamples = WavLoader::Resample(gChimeSamples, gSamplesLoadedSampleRate, sampleRate);
+            gEngine.LoadChimeSamples(gChimeSamples.data(), gChimeSamples.size());
+        }
+        NSLog(@"[AudioEngineBridge] resampled WAV samples %d → %d Hz",
+              gSamplesLoadedSampleRate, sampleRate);
+    } else {
+        [self _regenerateFallbackTicksAtSampleRate:sampleRate];
+        NSLog(@"[AudioEngineBridge] fallback ticks regenerated at %d Hz", sampleRate);
+    }
+    gSamplesLoadedSampleRate = sampleRate;
+}
+
+- (void)_regenerateFallbackTicksAtSampleRate:(int)sampleRate {
+    gTickHiSamples = WavGenerator::MakeWoodTick(sampleRate, true);
+    gTickLoSamples = WavGenerator::MakeWoodTick(sampleRate, false);
+    gEngine.LoadSoundPack(gTickHiSamples.data(), gTickHiSamples.size(),
+                          gTickLoSamples.data(), gTickLoSamples.size());
+    gUseAssetSamples = false;
+    gSamplesLoadedSampleRate = sampleRate;
+}
+
 @end
 
 // ============================================================================
 // AudioUnitDriver (RemoteIO)
 // ============================================================================
 
-#import <AudioUnit/AudioUnit.h>
-#import <AudioToolbox/AudioToolbox.h>
-
-// 渲染回调 — C 函数，必须实时安全
+// 渲染回调 — C 自由函数，必须实时安全：
+// refcon 直接是 gEngine（进程级单例），无 Obj-C 消息发送、无内存分配；
+// OnAudioCallback 自身负责静音路径；对 ioData 做空保护。
 static OSStatus RenderCallback(
     void *inRefCon,
     AudioUnitRenderActionFlags *ioActionFlags,
@@ -361,41 +519,55 @@ static OSStatus RenderCallback(
     UInt32 inNumberFrames,
     AudioBufferList *ioData)
 {
-    @autoreleasepool {
-        AudioEngineBridge *bridge = (__bridge AudioEngineBridge *)inRefCon;
-        float *out = (float *)ioData->mBuffers[0].mData;
-        memset(out, 0, inNumberFrames * sizeof(float));
-        [bridge onAudioCallback:out numFrames:(int)inNumberFrames];
-    }
+    AudioEngine *engine = static_cast<AudioEngine *>(inRefCon);
+    if (engine == nullptr || ioData == nullptr || ioData->mNumberBuffers < 1) return noErr;
+    float *out = static_cast<float *>(ioData->mBuffers[0].mData);
+    if (out == nullptr || inNumberFrames == 0) return noErr;
+    engine->OnAudioCallback(out, static_cast<int>(inNumberFrames));
     return noErr;
 }
 
 @implementation AudioUnitDriver {
     AudioUnit _audioUnit;
-    AudioEngineBridge *_bridge;
     int _sampleRate;
     BOOL _ready;
 }
 
-- (instancetype)initWithBridge:(AudioEngineBridge *)bridge {
+// driver 不持有 bridge 引用：render refcon 直接指向进程级 gEngine，
+// bridge↔driver 无循环引用；bridge 单例保证 gEngine 存活至进程结束。
+- (instancetype)init {
     self = [super init];
     if (self) {
-        _bridge = bridge;
-        _sampleRate = 48000;
+        _sampleRate = beat::kDefaultSampleRate;
         _ready = [self _createAudioUnit];
         if (!_ready) _sampleRate = 0;
     }
     return self;
 }
 
-- (int)sampleRate { return _sampleRate; }
+// 每次读都查询当前硬件实际率 — RemoteIO 不感知路由事件，路由切换可改变
+// 实际采样率；由 bridge（在 _stateQueue 上）在重建/复用后拉取该值再同步引擎。
+- (int)sampleRate {
+    if (_ready && _audioUnit) {
+        AudioStreamBasicDescription asbd;
+        UInt32 size = sizeof(asbd);
+        memset(&asbd, 0, sizeof(asbd));
+        if (AudioUnitGetProperty(_audioUnit,
+                                 kAudioUnitProperty_StreamFormat,
+                                 kAudioUnitScope_Input,
+                                 kOutputBus,
+                                 &asbd,
+                                 &size) == noErr && asbd.mSampleRate > 0) {
+            _sampleRate = (int)asbd.mSampleRate;
+        }
+    }
+    return _sampleRate;
+}
+
 - (BOOL)isReady { return _ready; }
 
-// --------------------------------------------------------------------------
 // 创建 RemoteIO AudioUnit
-// --------------------------------------------------------------------------
 - (BOOL)_createAudioUnit {
-    // 1. 找到 RemoteIO 组件
     AudioComponentDescription desc;
     desc.componentType          = kAudioUnitType_Output;
     desc.componentSubType       = kAudioUnitSubType_RemoteIO;
@@ -409,17 +581,16 @@ static OSStatus RenderCallback(
         return NO;
     }
 
-    // 2. 创建实例
     OSStatus status = AudioComponentInstanceNew(comp, &_audioUnit);
     if (status != noErr) {
         NSLog(@"[AudioUnit] ERROR: AudioComponentInstanceNew failed: %d", (int)status);
         return NO;
     }
 
-    // 3. 配置 Stream Format: Float32, mono, 48kHz
+    // Stream Format: Float32, mono, 48kHz（请求值，实际率由 sampleRate getter 回读）
     AudioStreamBasicDescription asbd;
     memset(&asbd, 0, sizeof(asbd));
-    asbd.mSampleRate       = 48000.0;
+    asbd.mSampleRate       = beat::kDefaultSampleRate;
     asbd.mFormatID         = kAudioFormatLinearPCM;
     asbd.mFormatFlags      = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
     asbd.mBitsPerChannel   = 32;
@@ -432,7 +603,7 @@ static OSStatus RenderCallback(
         _audioUnit,
         kAudioUnitProperty_StreamFormat,
         kAudioUnitScope_Input,
-        kOutputBus,  // output bus (bus 0)
+        kOutputBus,
         &asbd,
         sizeof(asbd)
     );
@@ -441,10 +612,10 @@ static OSStatus RenderCallback(
         return NO;
     }
 
-    // 4. 注册渲染回调
+    // 注册渲染回调（refcon = &gEngine，实时路径直接调 C++ 引擎）
     AURenderCallbackStruct callbackStruct;
     callbackStruct.inputProc       = RenderCallback;
-    callbackStruct.inputProcRefCon = (__bridge void *)_bridge;
+    callbackStruct.inputProcRefCon = reinterpret_cast<void *>(&gEngine);
 
     status = AudioUnitSetProperty(
         _audioUnit,
@@ -459,32 +630,15 @@ static OSStatus RenderCallback(
         return NO;
     }
 
-    // 5. 初始化
     status = AudioUnitInitialize(_audioUnit);
     if (status != noErr) {
         NSLog(@"[AudioUnit] ERROR: AudioUnitInitialize failed: %d", (int)status);
         return NO;
     }
 
-    // 6. 查询实际采样率并同步
-    UInt32 size = sizeof(asbd);
-    AudioUnitGetProperty(_audioUnit,
-                         kAudioUnitProperty_StreamFormat,
-                         kAudioUnitScope_Input,
-                         kOutputBus,
-                         &asbd,
-                         &size);
-    _sampleRate = (int)asbd.mSampleRate;
-
-    NSLog(@"[AudioUnit] RemoteIO created: %d Hz, %.1f ch",
-          _sampleRate, asbd.mChannelsPerFrame);
-
     return YES;
 }
 
-// --------------------------------------------------------------------------
-// Start / Stop
-// --------------------------------------------------------------------------
 - (BOOL)start {
     if (!_ready || !_audioUnit) return NO;
     OSStatus status = AudioOutputUnitStart(_audioUnit);
@@ -502,16 +656,6 @@ static OSStatus RenderCallback(
     NSLog(@"[AudioUnit] stopped");
 }
 
-// --------------------------------------------------------------------------
-// 采样率变更
-// --------------------------------------------------------------------------
-- (void)setSampleRate:(int)sr {
-    _sampleRate = sr;
-}
-
-// --------------------------------------------------------------------------
-// 清理
-// --------------------------------------------------------------------------
 - (void)dealloc {
     if (_audioUnit) {
         AudioOutputUnitStop(_audioUnit);

@@ -13,8 +13,8 @@ struct RunBeatProApp: App {
                 .onAppear {
                     // 预准备触觉反馈
                     HapticManager.prepare()
-                    // 初始化音频引擎
-                    AudioEngineBridge.shared().initializeEngine()
+                    // 音频引擎由 AudioEngineBridge.shared()（首访问时）init——
+                    // 不在此处二次 initializeEngine：它会覆盖已持久化的音量/accent（3.2）。
                 }
         }
     }
