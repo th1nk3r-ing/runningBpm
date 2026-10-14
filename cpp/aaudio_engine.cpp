@@ -16,8 +16,19 @@
 #include "core/WavLoader.hpp"
 
 #define LOG_TAG "RunBeat-Native"
+#define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// 每拍打印一行（音频回调线程内直接调用）；高频，降为 VERBOSE。
+static void LogTick(void* /*userData*/, std::uint64_t beatSeq,
+                    std::uint64_t framePos, int sampleRate) {
+    __android_log_print(ANDROID_LOG_VERBOSE, "RunBeat-Beat",
+                        "beat=%llu frame=%llu sr=%d",
+                        static_cast<unsigned long long>(beatSeq),
+                        static_cast<unsigned long long>(framePos),
+                        sampleRate);
+}
 
 static AudioEngine gEngine;
 static AAudioStream* gStream = nullptr;
@@ -360,6 +371,8 @@ static bool InitializeEngine() {
         if (gMonoBuf.capacity() < 4096) gMonoBuf.reserve(4096);
         gNativeInitialized.store(true, std::memory_order_release);
     }
+    // 每拍打印。
+    gEngine.SetTickCallback(&LogTick, nullptr);
     return true;
 }
 
@@ -435,10 +448,23 @@ Java_com_runbeat_audio_AudioEngine_nativeGetState(JNIEnv* /*env*/, jclass /*claz
     return static_cast<jint>(gEngine.GetState());
 }
 
-// 这些 setter 属高频调用（滑条拖动/BPM 连续触发），不逐次 LOGI 刷屏。
+/** XRun（丢帧）累计次数；未开流返回 -1。 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeGetXRunCount(JNIEnv* /*env*/, jclass /*clazz*/) {
+    if (gStream == nullptr) return -1;
+    return static_cast<jint>(AAudioStream_getXRunCount(gStream));
+}
 
+/** 本次运行累计拍数。 */
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_runbeat_audio_AudioEngine_nativeGetBeatSeq(JNIEnv* /*env*/, jclass /*clazz*/) {
+    return static_cast<jlong>(gEngine.GetBeatSeq());
+}
+
+// setter 多为高频调用，不逐次刷屏；BPM 例外，但也用 VERBOSE（长按会连续触发）。
 extern "C" JNIEXPORT void JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeSetBpm(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
+    LOGV("nativeSetBpm(%.3f)", static_cast<double>(bpm));
     gEngine.SetBpm(static_cast<double>(bpm));
 }
 

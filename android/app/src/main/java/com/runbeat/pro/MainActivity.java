@@ -12,7 +12,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -100,6 +102,10 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
+            // 每秒打印计时器/拍数/墙钟，便于核对。
+            Log.i("RunBeat-Stats", "elapsed=" + elapsedSeconds
+                    + " beats=" + AudioEngine.nativeGetBeatSeq()
+                    + " wallMs=" + SystemClock.elapsedRealtime());
             if (isRunning && !isPaused) {
                 timerHandler.postDelayed(this, 1000);
             }
@@ -223,8 +229,7 @@ public class MainActivity extends AppCompatActivity {
             updateServiceNotification();
         }
 
-        // 电池优化引导（Fix #8）：首次 START 前检查，不在这里弹，改在 Start 时检查
-        // 此处只在 onCreate 检查一次，避免频繁打扰
+        // 电池优化引导（Fix #8）：仅在 onCreate 检查一次，避免频繁打扰
         checkBatteryOptimization();
     }
 

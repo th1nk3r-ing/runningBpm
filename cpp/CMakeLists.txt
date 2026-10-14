@@ -19,7 +19,7 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS AND ANDROID)
     add_compile_options("-resource-dir=${NDK_RESOURCE_DIR}")
 endif()
 
-# 核心引擎库 — 纯 C++17 头文件库（现阶段仅占位）
+# 核心引擎库 — 纯 C++17 头文件库
 add_library(runbeat_core INTERFACE)
 target_include_directories(runbeat_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(runbeat_core INTERFACE cxx_std_17)

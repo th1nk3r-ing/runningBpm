@@ -51,7 +51,7 @@ bool WriteWav(const std::string& path, const float* samples, size_t numSamples,
     return true;
 }
 
-// ===== 生成 tick 采样：440Hz 正弦波 × 指数衰减 =====
+// ===== 生成 tick 采样：880Hz 正弦波 × 指数衰减 =====
 
 std::vector<float> GenerateTickSample(int sampleRate, float durationSec = 0.05f) {
     int length = static_cast<int>(sampleRate * durationSec);

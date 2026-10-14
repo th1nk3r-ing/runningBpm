@@ -181,8 +181,9 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     return ok;
 }
 
-// 中断兜底路径：仅在 AppDelegate 尝试 setActive(true) 重新并入混音失败后调用
-// （我们的会话是 .playback + .mixWithOthers，通常可继续留在混音中，不停流）。
+// 中断兜底路径：由 AppDelegate 的 interruptionBegan 分支调用 —— 通话中断直接走此路；
+// 非通话中断则先尝试 setActive(true) 重新并入混音，失败时才走此路（我们的会话是
+// .playback + .mixWithOthers，通常可继续留在混音中，不停流）。
 // 此处停流后等待 handleAudioInterruptionEndedShouldResume 恢复。
 - (void)handleAudioInterruptionBegan {
     [self _syncState:^() {

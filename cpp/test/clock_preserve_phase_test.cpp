@@ -5,7 +5,8 @@
  *   场景 — 旧 BPM 120（fpt=24000），已走 12000 帧（剩 12000，正中间，相位 50%），
  *          切到 BPM 100（fpt=28800），新 framesToNextTick 应当 = 28800 * 0.5 = 14400
  * 验证 2：与"重置版" SetBPM 的对比 — SetBPM 后 framesToNextTick 应直接 = 新 fpt（重置）
- * 验证 3：边界 — 旧 fpt=0 时（首次设置）退化为 = 新 fpt
+ * 验证 3：运行中频繁微调 BPM（preserve-phase），tick 速率保持稳定
+ * 验证 4：SetSampleRate 后（oldFpt>0）相位 100% 时 preserve-phase 得新 fpt
  *
  * 编译：g++ -std=c++17 -O2 -o clock_preserve_phase_test clock_preserve_phase_test.cpp
  */
@@ -54,7 +55,7 @@ int main() {
     }
 
     // ========== 测试 3：模拟运行中频繁微调 BPM 不会让 tick 速率失控 ==========
-    // 100 秒里每 100ms 抖动 ±0.5 BPM（模拟用户长按 + 控件回调），
+    // 100 秒里每 100ms 步进 0.5 BPM（在 119~121 间往返，模拟用户长按 + 控件回调），
     // 总 tick 数应接近 mean BPM * 100 / 60，误差 < 0.5%
     printf("[Test 3] Frequent micro-adjust (preserve-phase) keeps tick rate stable\n");
     {
@@ -82,8 +83,8 @@ int main() {
         if (err >= 0.005) gFails++;
     }
 
-    // ========== 测试 4：旧 fpt=0 边界（构造后立即调 PreservePhase） ==========
-    printf("[Test 4] Edge: PreservePhase on fresh Clock falls back to full fpt\n");
+    // ========== 测试 4：SetSampleRate 后相位 100% 时 preserve-phase ==========
+    printf("[Test 4] PreservePhase from 100%% remaining after SetSampleRate\n");
     {
         // 构造时 bpm_=180、fpt 已计算，所以这里特殊场景：用 0 sampleRate 构造
         Clock c(0);

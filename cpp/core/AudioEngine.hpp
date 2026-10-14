@@ -72,6 +72,9 @@ public:
 
     void Start(double bpm) noexcept {
         bpm_.store(bpm, std::memory_order_relaxed);
+        // 调试计数器随运行起点归零。
+        beatSeq_.store(0, std::memory_order_relaxed);
+        framesRendered_.store(0, std::memory_order_relaxed);
         // Clock 由音频线程独占。generation 合并请求：callback 应用最新 BPM 并重置相位。
         startGeneration_.fetch_add(1, std::memory_order_release);
         state_.store(State::Running, std::memory_order_release);
@@ -112,7 +115,11 @@ public:
         accentOn_.store(on, std::memory_order_relaxed);
     }
 
-    /** 输出总增益倍率（x1/x2/x3） — 经 Limiter 后再放大并 clamp，避免硬削波 */
+    /**
+     * 输出总增益倍率（x1/x2/x3）。
+     * 实际生效位置：OnAudioCallback 中先与 tick/chime 增益相乘完成混音，
+     * 末级再由 Limiter 硬限幅（±0.97）兜底，防止数字削波。
+     */
     void SetOutputGain(double gain) noexcept {
         outputGain_.store(gain, std::memory_order_relaxed);
     }
@@ -136,6 +143,18 @@ public:
 
     [[nodiscard]] State GetState() const noexcept {
         return state_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] std::uint64_t GetBeatSeq() const noexcept {
+        return beatSeq_.load(std::memory_order_relaxed);
+    }
+
+    /** 每拍回调（音频回调线程内同步调用，默认未设置）。beatSeq 从 1 起。 */
+    using TickCallback = void (*)(void* userData, std::uint64_t beatSeq,
+                                  std::uint64_t framePos, int sampleRate);
+    void SetTickCallback(TickCallback cb, void* userData) noexcept {
+        tickCallback_ = cb;
+        tickCallbackUserData_ = userData;
     }
 
     void LoadTickSamples(const float* data, size_t length) noexcept {
@@ -221,6 +240,14 @@ public:
         // 每帧推进两个 player 让长尾自然结束，只混入 accent 对应的一路。
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
+                const std::uint64_t beatSeq =
+                        beatSeq_.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (tickCallback_ != nullptr) {
+                    tickCallback_(tickCallbackUserData_, beatSeq,
+                                  framesRendered_.load(std::memory_order_relaxed)
+                                          + static_cast<std::uint64_t>(i),
+                                  appliedSampleRate_);
+                }
                 if (accent) {
                     tickPlayer_.Play();
                 } else {
@@ -233,6 +260,8 @@ public:
             float chimeSample = chimePlayer_.ReadOne();
             out[i] = tickSample * tickGain + chimeSample * chimeGain;
         }
+        framesRendered_.fetch_add(static_cast<std::uint64_t>(numFrames),
+                                  std::memory_order_relaxed);
 
         // 硬限幅：仅峰值 > ±0.97 时介入，保留 click 瞬态
         Limiter::ProcessHard(out, numFrames);
@@ -280,4 +309,10 @@ private:
     std::atomic<double> outputGain_{beat::kDefaultOutputGain};
 
     std::atomic<State> state_{State::Idle};
+
+    // 调试：跨回调累计拍序与已渲染帧数（回调线程写，任意线程读）。
+    std::atomic<std::uint64_t> beatSeq_{0};
+    std::atomic<std::uint64_t> framesRendered_{0};
+    TickCallback tickCallback_ = nullptr;
+    void* tickCallbackUserData_ = nullptr;
 };

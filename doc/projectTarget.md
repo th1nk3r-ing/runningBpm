@@ -79,11 +79,11 @@ UI 采用高对比度深色模式，针对跑步时的身体晃动，点击区�
 
 #### 5.2 交互逻辑细节
 
-触觉反馈 (Haptics)：在点击 +1/-1 BPM 时，Android 调用 Vibrator，iOS 调用 UIImpactFeedbackGenerator，给跑者确认感。
+触觉反馈 (Haptics)：在点击 BPM 调节按钮时，Android 调用 View.performHapticFeedback，iOS 调用 UIImpactFeedbackGenerator，给跑者确认感。
 
 常亮模式：运行期间请求 keepScreenOn，防止屏幕自动休眠。
 
-锁定逻辑：开启锁定后，屏蔽 START/PAUSE 以外的所有按钮，防止跑步时汗水或误触误操作。
+锁定逻辑：开启锁定后，屏蔽 BPM 调节、音量、倍率、重音、音色等参数控件，防止跑步时汗水或误触误操作。
 
 ---
 
@@ -95,7 +95,7 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
   * 首选 `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY` + `AAUDIO_SHARING_MODE_EXCLUSIVE`。
   * **降级逻辑**：若独占模式失败（常见于蓝牙耳机或国产 ROM 限制），自动回退至 `AAUDIO_SHARING_MODE_SHARED` 模式。
 
-* **XRun 监控**：实时记录采样溢出（Underrun/Overrun），动态调整 Buffer 大小以平衡延迟与稳定性。
+* **XRun 监控**：累计记录采样溢出（Underrun/Overrun）用于观测；Buffer 尺寸固定为 2×burst。
 * **保活三剑客**：
   1. **Foreground Service**：绑定常驻通知栏。
   2. **WakeLock**：防止 CPU 进入深度休眠。
@@ -107,7 +107,7 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
 
 * **Audio Session**：配置为 `AVAudioSessionCategoryPlayback`，支持后台持续发声。
 * **RemoteIO**：直接控制 `AudioUnit` 回调，绕过高层 API 以获得极致稳定性。
-* **锁屏集成**：对接 `MPRemoteCommandCenter`，支持在锁屏界面微调 BPM 或启停。
+* **锁屏集成**：对接 `MPRemoteCommandCenter`，支持在锁屏/耳机线控启停（暂不支持微调 BPM）。
 
 ---
 

@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -120,6 +121,8 @@ public class MetronomeService extends Service {
             if (!currentRunning) return;
             // 重建前刷新混音偏好：运行期间其它 App 可能开始播放，避免用旧值重开 EXCLUSIVE。
             AudioEngineRestorer.applyAudioSharingPreference(MetronomeService.this);
+            int xruns = AudioEngine.nativeGetXRunCount();
+            Log.i("RunBeat-XRun", "xruns=" + xruns);
             AudioEngine.nativeRebuildStreamIfNeeded();
             streamHealthHandler.postDelayed(this, 1000);
         }

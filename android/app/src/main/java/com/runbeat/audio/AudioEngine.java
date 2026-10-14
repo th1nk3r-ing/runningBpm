@@ -2,7 +2,7 @@ package com.runbeat.audio;
 
 /**
  * JNI 桥接类 — Native C++ 音频引擎接口。
- * Phase 1.2: 空壳声明；Phase 2 实现 native 方法。
+ * native 方法由 cpp/aaudio_engine.cpp 实现。
  */
 public class AudioEngine {
 
@@ -97,8 +97,13 @@ public class AudioEngine {
 
     // ========== 监控 ==========
 
-    // （nativeGetXRunCount 已删除：JNI 入口曾存在但无 Java 调用者；
-    //  真正的 XRun 上报见 doc/target.md。）
+    // 调试观测：XRun 由 1Hz 健康检查读取；beatSeq 供核对拍数。
+
+    /** XRun（丢帧）累计次数；未开流返回 -1。 */
+    public static native int nativeGetXRunCount();
+
+    /** 本次运行累计拍数。 */
+    public static native long nativeGetBeatSeq();
 
     /**
      * 告知 native 侧「当前是否有其它音频在播放」：true → 固定以 SHARED 开流与系统混音共存，
