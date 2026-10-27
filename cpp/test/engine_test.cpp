@@ -260,12 +260,66 @@ bool TestPauseDropsPendingChime() {
     return silent;
 }
 
+// ===== 重音模式 =====
+
+struct BeatFrames {
+    std::vector<std::uint64_t> frames;
+};
+
+void RecordBeat(void* userData, std::uint64_t /*beatSeq*/,
+                std::uint64_t framePos, int /*sampleRate*/) {
+    static_cast<BeatFrames*>(userData)->frames.push_back(framePos);
+}
+
+/** hi/lo 用符号相反的常量样本，按拍首帧的正负号判定这一拍是重还是轻。 */
+bool TestAccentPattern() {
+    constexpr int kSampleRate = 48000;
+    constexpr double kBPM = 300.0;
+    constexpr int kBeatFrames = 9600;
+    constexpr int kBeats = 8;
+    constexpr int kFrames = kBeatFrames * kBeats;
+    const char* expected[] = {"HHHHHHHH", "LLLLLLLL", "HLHLHLHL",
+                              "LHLHLHLH", "HLLLHLLL", "LHHHLHHH"};
+
+    std::vector<float> hi(kBeatFrames, 0.5f);
+    std::vector<float> lo(kBeatFrames, -0.5f);
+
+    AudioEngine engine;
+    engine.LoadSoundPack(hi.data(), hi.size(), lo.data(), lo.size());
+    engine.SetTickVolume(1.0);
+    engine.SetOutputGain(1.0);
+
+    bool ok = true;
+    for (int mode = 0; mode < 6; ++mode) {
+        BeatFrames beats;
+        engine.SetAccentMode(mode);
+        engine.SetTickCallback(&RecordBeat, &beats);
+        engine.Start(kBPM);
+
+        std::vector<float> audio(kFrames, 0.0f);
+        engine.OnAudioCallback(audio.data(), kFrames);
+        engine.Stop();
+        engine.SetTickCallback(nullptr, nullptr);
+
+        std::string got;
+        for (std::uint64_t frame : beats.frames) {
+            got.push_back(audio[frame] > 0.0f ? 'H' : 'L');
+        }
+        const bool pass = got == expected[mode];
+        printf("Accent mode %d: %s (expect %s, got %s)\n",
+               mode, pass ? "PASS" : "FAIL", expected[mode], got.c_str());
+        ok = ok && pass;
+    }
+    return ok;
+}
+
 // ===== 主测试 =====
 
 int main() {
     const bool clockUpdatesOk = TestDeferredClockUpdates();
     const bool concurrentClockControlOk = TestConcurrentClockControl();
     const bool pauseDropsChimeOk = TestPauseDropsPendingChime();
+    const bool accentPatternOk = TestAccentPattern();
     constexpr int kSampleRate = 48000;
     constexpr double kBPM = 150.0;
     constexpr int kDurationSec = 10;

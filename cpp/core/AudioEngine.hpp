@@ -67,6 +67,9 @@ private:
 class AudioEngine {
 public:
     enum class State : int { Idle, Running, Paused };
+    enum class AccentMode : int {
+        AllHeavy = 0, AllLight = 1, Every2 = 2, Every2Light = 3, Every4 = 4, Every4Light = 5
+    };
 
     AudioEngine() = default;
     ~AudioEngine() { Stop(); }
@@ -112,8 +115,12 @@ public:
         chimeGain_.store(vol, std::memory_order_relaxed);
     }
 
-    void SetAccent(bool on) noexcept {
-        accentOn_.store(on, std::memory_order_relaxed);
+    void SetAccentMode(int mode) noexcept {
+        if (mode < static_cast<int>(AccentMode::AllHeavy) ||
+            mode > static_cast<int>(AccentMode::Every4Light)) {
+            mode = static_cast<int>(AccentMode::AllHeavy);
+        }
+        accentMode_.store(mode, std::memory_order_relaxed);
     }
 
     /** 输出总增益（x1/x2/x3）：混音时乘入 tick/chime，末级由 Limiter 限幅兜底。 */
@@ -234,7 +241,7 @@ public:
         float outGain = static_cast<float>(outputGain_.load(std::memory_order_relaxed));
         float tickGain = static_cast<float>(tickGain_.load(std::memory_order_relaxed)) * outGain;
         float chimeGain = static_cast<float>(chimeGain_.load(std::memory_order_relaxed)) * outGain;
-        bool accent = accentOn_.load(std::memory_order_relaxed);
+        int accentMode = accentMode_.load(std::memory_order_relaxed);
 
         const unsigned chimeCount = pendingChimeTriggers_.exchange(0, std::memory_order_acquire);
         for (unsigned i = 0; i < chimeCount; ++i) {
@@ -242,7 +249,7 @@ public:
         }
         // 每拍回调注册信息一次性快照（seqlock），循环内只用局部变量
         const TickCallbackSnapshot tickCb = LoadTickCallback();
-        // 两路 player 都要推进以让长尾自然结束，只混入 accent 对应的一路
+        // 两路 player 都要推进以让长尾自然结束，只混入当前拍对应的一路
         for (int i = 0; i < numFrames; ++i) {
             if (clock_.Advance()) {
                 const std::uint64_t beatSeq =
@@ -253,7 +260,8 @@ public:
                                             + static_cast<std::uint64_t>(i),
                                     appliedSampleRate_);
                 }
-                if (accent) {
+                currentHeavy_ = IsAccentBeat(accentMode, beatSeq);
+                if (currentHeavy_) {
                     tickPlayer_.Play();
                 } else {
                     tickLoPlayer_.Play();
@@ -261,7 +269,7 @@ public:
             }
             float hiSample  = tickPlayer_.ReadOne();
             float loSample  = tickLoPlayer_.ReadOne();
-            float tickSample = accent ? hiSample : loSample;
+            float tickSample = currentHeavy_ ? hiSample : loSample;
             float chimeSample = chimePlayer_.ReadOne();
             out[i] = tickSample * tickGain + chimeSample * chimeGain;
         }
@@ -272,6 +280,18 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool IsAccentBeat(int mode, std::uint64_t beatSeq) noexcept {
+        switch (static_cast<AccentMode>(mode)) {
+            case AccentMode::AllHeavy:    return true;
+            case AccentMode::AllLight:    return false;
+            case AccentMode::Every2:      return (beatSeq % 2) == 1;
+            case AccentMode::Every2Light: return (beatSeq % 2) != 1;
+            case AccentMode::Every4:      return (beatSeq % 4) == 1;
+            case AccentMode::Every4Light: return (beatSeq % 4) != 1;
+        }
+        return true;
+    }
+
     /** 每拍回调注册信息的只读快照（seqlock 保证 callback 与 userData 成对）。 */
     struct TickCallbackSnapshot {
         TickCallback callback;
@@ -347,7 +367,9 @@ private:
     int appliedSampleRate_ = beat::kDefaultSampleRate;
     std::atomic<double> tickGain_{beat::kDefaultTickGain};
     std::atomic<double> chimeGain_{beat::kDefaultChimeGain};
-    std::atomic<bool> accentOn_{true};
+    std::atomic<int> accentMode_{static_cast<int>(AccentMode::AllHeavy)};
+    // 当前拍用 hi 还是 lo：触发时更新，尾音期间保持不变
+    bool currentHeavy_ = true;
     std::atomic<double> outputGain_{beat::kDefaultOutputGain};
 
     std::atomic<State> state_{State::Idle};

@@ -13,6 +13,7 @@
 "msg_auto_locked" = "Auto Locked";
 "dialog_theme_title" = "Theme Color";
 "dialog_timbre_title" = "Select Timbre";
+"dialog_accent_title" = "Select Accent";
 "btn_cancel" = "Cancel";
 "lang_toggle" = "中文";
 "app_name" = "RunBeat Pro";

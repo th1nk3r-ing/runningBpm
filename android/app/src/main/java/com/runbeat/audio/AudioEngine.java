@@ -69,7 +69,7 @@ public class AudioEngine {
 
     private static native void nativeSetChimeVolumeRaw(double vol);
 
-    private static native void nativeSetAccentRaw(boolean on);
+    private static native void nativeSetAccentModeRaw(int mode);
 
     private static native void nativeSetOutputGainRaw(double gain);
 
@@ -138,8 +138,9 @@ public class AudioEngine {
         if (libraryLoaded) nativeSetChimeVolumeRaw(vol);
     }
 
-    public static void nativeSetAccent(boolean on) {
-        if (libraryLoaded) nativeSetAccentRaw(on);
+    /** 重音模式：0=全部重音 1=全部轻音 2=每 2 拍重音 3=每 4 拍重音 */
+    public static void nativeSetAccentMode(int mode) {
+        if (libraryLoaded) nativeSetAccentModeRaw(mode);
     }
 
     /** 输出总倍率（x1/x2/x3），叠加在 tick/chime gain 之上 */

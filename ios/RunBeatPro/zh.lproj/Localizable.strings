@@ -13,5 +13,6 @@
 "msg_auto_locked" = "已自动锁定";
 "dialog_theme_title" = "主题色";
 "dialog_timbre_title" = "选择音色";
+"dialog_accent_title" = "选择重音";
 "btn_cancel" = "取消";
 "lang_toggle" = "EN";

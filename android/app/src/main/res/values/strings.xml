@@ -18,6 +18,7 @@
     <string name="msg_stopped">已停止</string>
     <string name="dialog_theme_title">主题色</string>
     <string name="dialog_timbre_title">选择音色</string>
+    <string name="dialog_accent_title">选择重音</string>
     <string name="dialog_bpm_title">精确调整 BPM（0.1）</string>
     <string name="btn_ok">确定</string>
     <string name="btn_cancel">取消</string>
@@ -35,6 +36,16 @@
     <string name="notif_state_paused">已暂停</string>
     <string name="notif_state_stopped">已停止</string>
     <string name="notif_action_stop">停止</string>
+
+    <!-- 重音模式名称 -->
+    <string-array name="accent_mode_names">
+        <item>全部重音</item>
+        <item>全部轻音</item>
+        <item>每 2 拍重音</item>
+        <item>每 2 拍轻音</item>
+        <item>每 4 拍重音</item>
+        <item>每 4 拍轻音</item>
+    </string-array>
 
     <!-- 音色名称 -->
     <string-array name="timbre_names">

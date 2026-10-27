@@ -500,8 +500,8 @@ Java_com_runbeat_audio_AudioEngine_nativeSetChimeVolumeRaw(JNIEnv * /*env*/, jcl
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetAccentRaw(JNIEnv * /*env*/, jclass /*clazz*/, jboolean on) {
-    gEngine.SetAccent(static_cast<bool>(on));
+Java_com_runbeat_audio_AudioEngine_nativeSetAccentModeRaw(JNIEnv * /*env*/, jclass /*clazz*/, jint mode) {
+    gEngine.SetAccentMode(static_cast<int>(mode));
 }
 
 extern "C" JNIEXPORT void JNICALL

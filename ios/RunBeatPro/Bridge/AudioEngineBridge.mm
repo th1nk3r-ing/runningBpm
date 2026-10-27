@@ -95,7 +95,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         gEngine.SetTickVolume(beat::kDefaultTickGain);
         gEngine.SetChimeVolume(beat::kDefaultChimeGain);
         gEngine.SetOutputGain(beat::kDefaultOutputGain);
-        gEngine.SetAccent(true);
+        gEngine.SetAccentMode(0);
 
         // fallback 木鱼采样（WAV 加载失败时使用；WAV 成功加载后覆盖）
         [self _regenerateFallbackTicksAtSampleRate:self->_sampleRate];
@@ -348,8 +348,8 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
     gEngine.SetChimeVolume(vol);
 }
 
-- (void)setAccent:(BOOL)on {
-    gEngine.SetAccent((bool)on);
+- (void)setAccentMode:(NSInteger)mode {
+    gEngine.SetAccentMode((int)mode);
 }
 
 - (void)setOutputGain:(double)gain {

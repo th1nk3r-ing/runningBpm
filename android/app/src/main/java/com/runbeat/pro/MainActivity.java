@@ -25,7 +25,6 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -67,11 +66,14 @@ public class MainActivity extends AppCompatActivity {
     private Button btnStartPause;
     private SeekBar seekTickVolume;
     private TextView btnGain;
-    private Switch switchAccent;
+    private View layoutAccent;
+    private TextView tvAccentName;
+    private TextView tvAccentArrow;
+    private int accentMode = 0;
     private View layoutTimbre;
     private TextView tvTimbreName;
     private TextView tvTimbreArrow;
-    private View layoutBpmControls, layoutParams;
+    private View layoutBpmControls;
     private TextView tvBuildInfo;
 
     // ===== 状态 =====
@@ -185,7 +187,7 @@ public class MainActivity extends AppCompatActivity {
         // 优先级：SharedPreferences < savedInstanceState
         bpm = prefsManager.getBpm();
         int savedVolume = prefsManager.getTickVolume();
-        boolean savedAccent = prefsManager.isAccentEnabled();
+        accentMode = prefsManager.getAccentMode();
 
         if (savedInstanceState != null) {
             bpm = savedInstanceState.getDouble("bpm", bpm);
@@ -204,7 +206,7 @@ public class MainActivity extends AppCompatActivity {
         updateUI();
 
         seekTickVolume.setProgress(tickVolumePercent);
-        switchAccent.setChecked(savedAccent);
+        applyAccentMode(accentMode);
 
         AudioEngine.nativeSetBpm(bpm);
         AudioEngine.nativeSetTickVolume(tickVolumePercent / 100.0f);
@@ -304,12 +306,13 @@ public class MainActivity extends AppCompatActivity {
         btnStartPause = findViewById(R.id.btnStartPause);
         seekTickVolume = findViewById(R.id.seekTickVolume);
         btnGain = findViewById(R.id.btnGain);
-        switchAccent = findViewById(R.id.switchAccent);
+        layoutAccent = findViewById(R.id.layoutAccent);
+        tvAccentName = findViewById(R.id.tvAccentName);
+        tvAccentArrow = findViewById(R.id.tvAccentArrow);
         layoutTimbre = findViewById(R.id.layoutTimbre);
         tvTimbreName = findViewById(R.id.tvTimbreName);
         tvTimbreArrow = findViewById(R.id.tvTimbreArrow);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
-        layoutParams = findViewById(R.id.layoutParams);
         tvBuildInfo = findViewById(R.id.tvBuildInfo);
     }
 
@@ -354,10 +357,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
-        switchAccent.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            AudioEngine.nativeSetAccent(isChecked);
-            prefsManager.setAccentEnabled(isChecked);
-        });
+        layoutAccent.setOnClickListener(v -> showAccentDialog());
 
         btnGain.setOnClickListener(v -> {
             gainLevel = gainLevel % 3 + 1; // 1 → 2 → 3 → 1
@@ -402,6 +402,29 @@ public class MainActivity extends AppCompatActivity {
         if (gainLevel > 3) gainLevel = 3;
         AudioEngine.nativeSetOutputGain((double) gainLevel);
         btnGain.setText("x" + gainLevel);
+    }
+
+    // ===== 重音模式 =====
+
+    private void showAccentDialog() {
+        String[] names = getResources().getStringArray(R.array.accent_mode_names);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dialog_accent_title)
+                .setSingleChoiceItems(names, accentMode, (dialog, which) -> {
+                    applyAccentMode(which);
+                    dialog.dismiss();
+                })
+                .setNegativeButton(R.string.btn_cancel, null)
+                .show();
+    }
+
+    private void applyAccentMode(int mode) {
+        if (mode < 0 || mode > 5) return;
+        accentMode = mode;
+        AudioEngine.nativeSetAccentMode(mode);
+        String[] names = getResources().getStringArray(R.array.accent_mode_names);
+        tvAccentName.setText(names[mode]);
+        prefsManager.setAccentMode(mode);
     }
 
     // ===== 音色切换 =====
@@ -938,10 +961,9 @@ public class MainActivity extends AppCompatActivity {
         seekTickVolume.setThumbTintList(csl);
         seekTickVolume.setProgressTintList(csl);
         unlockProgress.setProgressTintList(csl);
-        int[][] st = {{android.R.attr.state_checked}, {}};
-        switchAccent.setThumbTintList(new ColorStateList(st, new int[]{color, 0xFF888888}));
-        int trackOn = Color.argb(128, Color.red(color), Color.green(color), Color.blue(color));
-        switchAccent.setTrackTintList(new ColorStateList(st, new int[]{trackOn, 0xFF444444}));
+        tvAccentName.setTextColor(color);
+        tvAccentArrow.setTextColor(color);
+        layoutAccent.setBackground(makeTimbreRowBg(color));
         tvTimbreName.setTextColor(color);
         tvTimbreArrow.setTextColor(color);
         layoutTimbre.setBackground(makeTimbreRowBg(color));
@@ -1019,7 +1041,8 @@ public class MainActivity extends AppCompatActivity {
         seekTickVolume.setAlpha(enabled ? 1.0f : 0.4f);
         btnGain.setEnabled(enabled);
         btnGain.setAlpha(enabled ? 1.0f : 0.4f);
-        switchAccent.setEnabled(enabled);
+        layoutAccent.setEnabled(enabled);
+        layoutAccent.setAlpha(enabled ? 1.0f : 0.4f);
         layoutTimbre.setEnabled(enabled);
         layoutTimbre.setAlpha(enabled ? 1.0f : 0.4f);
         btnStartPause.setEnabled(enabled);

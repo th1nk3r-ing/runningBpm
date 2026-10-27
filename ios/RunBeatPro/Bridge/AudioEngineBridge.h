@@ -28,7 +28,7 @@ FOUNDATION_EXPORT NSString * const RunBeatAudioStateChangedNotification;
 - (void)setBpm:(double)bpm;
 - (void)setTickVolume:(double)vol;     // [0.0, 1.0]
 - (void)setChimeVolume:(double)vol;
-- (void)setAccent:(BOOL)on;
+- (void)setAccentMode:(NSInteger)mode;  // 0=全部重音 1=全部轻音 2=每 2 拍重音 3=每 4 拍重音
 - (void)setOutputGain:(double)gain;    // x1 / x2 / x3
 
 - (BOOL)loadTickHiWithFileURL:(NSURL *)hiURL tickLo:(NSURL *)loURL;

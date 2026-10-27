@@ -310,29 +310,48 @@
 
     </LinearLayout>
 
-    <!-- ⑦ 重音行 -->
+    <!-- ⑦ 重音模式行 -->
     <LinearLayout
-        android:id="@+id/layoutParams"
+        android:id="@+id/layoutAccent"
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
+        android:background="@drawable/bg_selector_row"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingHorizontal="12dp"
         android:layout_marginBottom="8dp">
 
         <TextView
-            android:id="@+id/tvAccentLabel"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/label_accent"
-            android:textColor="@color/textSecondary"
-            android:textSize="14sp" />
-
-        <Switch
-            android:id="@+id/switchAccent"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:checked="true" />
+            android:text="@string/label_accent"
+            android:textColor="@color/textSecondary"
+            android:textSize="14sp"
+            android:layout_marginEnd="8dp" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tvAccentName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/accent"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAccentArrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="  ▾"
+            android:textColor="@color/accent"
+            android:textSize="14sp" />
 
     </LinearLayout>
 

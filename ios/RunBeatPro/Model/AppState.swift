@@ -53,19 +53,33 @@ final class AppState {
         }
     }
 
-    // MARK: - Volume & Accent
+    // MARK: - Accent Mode
+
+    var accentMode: Int = 0 {
+        didSet {
+            AudioEngineBridge.shared().setAccentMode(accentMode)
+            saveAccentMode()
+        }
+    }
+
+    static let ACCENT_MODE_NAMES_ZH = [
+        "全部重音", "全部轻音", "每 2 拍重音", "每 2 拍轻音", "每 4 拍重音", "每 4 拍轻音"
+    ]
+    static let ACCENT_MODE_NAMES_EN = [
+        "All Heavy", "All Light", "Accent Every 2", "Light Every 2", "Accent Every 4", "Light Every 4"
+    ]
+
+    var accentModeName: String {
+        let names = currentLanguage == "zh" ? Self.ACCENT_MODE_NAMES_ZH : Self.ACCENT_MODE_NAMES_EN
+        return names[min(max(accentMode, 0), names.count - 1)]
+    }
+
+    // MARK: - Volume
 
     var tickVolume: Float = 0.8 {    // 0.0 ~ 1.0
         didSet {
             AudioEngineBridge.shared().setTickVolume(Double(tickVolume))
             saveVolume()
-        }
-    }
-
-    var accentOn: Bool = true {
-        didSet {
-            AudioEngineBridge.shared().setAccent(accentOn)
-            saveAccent()
         }
     }
 
@@ -341,8 +355,8 @@ final class AppState {
         UserDefaults.standard.setValue(Int(tickVolume * 100), forKey: "tick_volume")
     }
 
-    private func saveAccent() {
-        UserDefaults.standard.setValue(accentOn, forKey: "accent")
+    private func saveAccentMode() {
+        UserDefaults.standard.setValue(accentMode, forKey: "accent_mode")
     }
 
     private func saveGainLevel() {
@@ -371,7 +385,12 @@ final class AppState {
         tickVolume = Float(ud.integer(forKey: "tick_volume")) / 100.0
         if tickVolume <= 0 { tickVolume = 0.8 }
 
-        accentOn = ud.object(forKey: "accent") as? Bool ?? true
+        if let savedMode = ud.object(forKey: "accent_mode") as? Int, savedMode >= 0, savedMode <= 5 {
+            accentMode = savedMode
+        } else {
+            // 旧版布尔键迁移：开启 → 全部重音，关闭 → 全部轻音
+            accentMode = (ud.object(forKey: "accent") as? Bool ?? true) ? 0 : 1
+        }
         gainLevel = ud.integer(forKey: "gain_level")
         if gainLevel < 1 || gainLevel > 3 { gainLevel = 1 }
 

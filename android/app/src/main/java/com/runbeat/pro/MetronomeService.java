@@ -272,7 +272,7 @@ public class MetronomeService extends Service {
         AudioEngineRestorer.loadDefaultSamples(this);
         AudioEngine.nativeSetBpm(currentBpm);
         AudioEngine.nativeSetTickVolume(preferences.getTickVolume() / 100.0);
-        AudioEngine.nativeSetAccent(preferences.isAccentEnabled());
+        AudioEngine.nativeSetAccentMode(preferences.getAccentMode());
         AudioEngine.nativeSetOutputGain(preferences.getGainLevel());
         AudioEngineRestorer.loadSoundPack(this, preferences.getTimbre());
 

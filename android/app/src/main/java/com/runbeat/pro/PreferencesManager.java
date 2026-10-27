@@ -13,6 +13,7 @@ public class PreferencesManager {
     private static final String KEY_BPM_BITS    = "bpm_bits";
     private static final String KEY_TICK_VOLUME = "tick_volume";
     private static final String KEY_ACCENT      = "accent";
+    private static final String KEY_ACCENT_MODE = "accent_mode";
     private static final String KEY_TIMBRE      = "timbre";
     private static final String KEY_GAIN_LEVEL  = "gain_level";
     private static final String KEY_ACCENT_INDEX = "accent_index";
@@ -21,6 +22,7 @@ public class PreferencesManager {
     private static final double  DEFAULT_BPM         = 180.0;
     private static final int     DEFAULT_TICK_VOLUME  = 80;
     private static final boolean DEFAULT_ACCENT       = true;
+    private static final int     DEFAULT_ACCENT_MODE  = 0;
     private static final int     DEFAULT_TIMBRE       = 0;
     private static final int     DEFAULT_GAIN_LEVEL   = 1;
     private static final int     DEFAULT_ACCENT_INDEX = 0;
@@ -62,12 +64,21 @@ public class PreferencesManager {
         prefs.edit().putInt(KEY_TICK_VOLUME, volume).apply();
     }
 
-    public boolean isAccentEnabled() {
-        return prefs.getBoolean(KEY_ACCENT, DEFAULT_ACCENT);
+    /**
+     * 重音模式：0=全部重音 1=全部轻音 2=每 2 拍重音 3=每 2 拍轻音
+     * 4=每 4 拍重音 5=每 4 拍轻音。
+     * 旧版布尔键只读迁移：开启 → 全部重音，关闭 → 全部轻音。
+     */
+    public int getAccentMode() {
+        if (!prefs.contains(KEY_ACCENT_MODE)) {
+            return prefs.getBoolean(KEY_ACCENT, DEFAULT_ACCENT) ? 0 : 1;
+        }
+        int v = prefs.getInt(KEY_ACCENT_MODE, DEFAULT_ACCENT_MODE);
+        return (v >= 0 && v <= 5) ? v : DEFAULT_ACCENT_MODE;
     }
 
-    public void setAccentEnabled(boolean enabled) {
-        prefs.edit().putBoolean(KEY_ACCENT, enabled).apply();
+    public void setAccentMode(int mode) {
+        prefs.edit().putInt(KEY_ACCENT_MODE, mode).apply();
     }
 
     public int getTimbre() {
