@@ -15,13 +15,26 @@
     <string name="msg_unlocked">Unlocked</string>
     <string name="msg_auto_locked">Auto Locked</string>
     <string name="msg_audio_unavailable">Unable to start audio. Please try again.</string>
+    <string name="msg_stopped">Stopped</string>
     <string name="dialog_theme_title">Theme Color</string>
     <string name="dialog_timbre_title">Select Timbre</string>
+    <string name="dialog_bpm_title">Adjust BPM (0.1)</string>
+    <string name="btn_ok">OK</string>
     <string name="btn_cancel">Cancel</string>
+    <string name="desc_lock">Lock screen to prevent accidental taps</string>
+    <string name="desc_unlock">Long-press to unlock</string>
     <string name="lang_toggle">中文</string>
     <string name="dialog_battery_title">Battery Optimization</string>
     <string name="dialog_battery_msg">To ensure the metronome runs reliably in the background for long runs (4h+), it is recommended to exclude RunBeat Pro from battery optimization.</string>
     <string name="btn_go_to_settings">Settings</string>
+
+    <!-- Foreground service notification -->
+    <string name="notif_channel_name">Run Metronome</string>
+    <string name="notif_channel_desc">Persistent notification while running in background</string>
+    <string name="notif_state_running">running</string>
+    <string name="notif_state_paused">paused</string>
+    <string name="notif_state_stopped">stopped</string>
+    <string name="notif_action_stop">Stop</string>
 
     <!-- Timbre Names -->
     <string-array name="timbre_names">

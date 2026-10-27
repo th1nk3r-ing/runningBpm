@@ -8,6 +8,7 @@ import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,6 +19,7 @@ import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.animation.LinearInterpolator;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -73,6 +75,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvBuildInfo;
 
     // ===== 状态 =====
+    /** BPM 产品区间（120–220，支持 0.1 精度）。 */
+    private static final double MIN_BPM = 120.0;
+    private static final double MAX_BPM = 220.0;
+    private static final int BPM_STEPS_PER_UNIT = 10;   // 0.1 精度
+
     private double bpm = 180.0;
     private boolean isRunning = false;
     private boolean isPaused = false;
@@ -102,7 +109,6 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
-            // 每秒打印计时器/拍数/墙钟，便于核对。
             Log.i("RunBeat-Stats", "elapsed=" + elapsedSeconds
                     + " beats=" + AudioEngine.nativeGetBeatSeq()
                     + " wallMs=" + SystemClock.elapsedRealtime());
@@ -131,11 +137,14 @@ public class MainActivity extends AppCompatActivity {
     private Runnable autoLockRunnable = null;
 
     // ===== 来电自动暂停 =====
-    // 通话监听由 MetronomeService 持有；Activity 只负责惰性申请权限并同步 Service 状态。
+    // 通话监听归 MetronomeService；Activity 只申请权限并同步状态
     private ActivityResultLauncher<String> phonePermissionLauncher;
     private boolean phonePermissionRequested = false;
 
-    /** Service 侧（来电暂停/恢复）状态变化时刷新本页 UI 与计时器；主线程回调。 */
+    // ===== 通知权限（Android 13+ 前台服务通知） =====
+    private ActivityResultLauncher<String> notificationPermissionLauncher;
+    private boolean notificationPermissionRequested = false;
+
     private final MetronomeService.PlaybackStateListener serviceStateListener =
             this::syncUiWithServiceState;
 
@@ -143,7 +152,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // 加载持久化配置（需要在 super.onCreate 前处理语言）
+        // 语言需在 super.onCreate 前设置
         prefsManager = new PreferencesManager(this);
         applyLanguage(prefsManager.getLanguage());
 
@@ -153,21 +162,27 @@ public class MainActivity extends AppCompatActivity {
         bindViews();
         setupListeners();
 
-        // 通话状态权限：惰性申请；拒绝后节拍器功能不受影响，仅跳过来电自动暂停。
+        // 权限拒绝只影响来电自动暂停，不影响节拍器
         phonePermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> {
                     if (granted) MetronomeService.onPhonePermissionGranted();
                 });
 
-        // 配置变更时复用进程内的 native 引擎，避免旧 Activity 销毁它。
+        notificationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> {
+                    // 授权前已发出的通知会被系统丢弃且不补发，授权后必须重新 notify
+                    if (granted && isRunning) updateServiceNotification();
+                });
+
         AudioEngineRestorer.applyAudioSharingPreference(this);
         boolean engineReady = AudioEngine.initialize();
         if (engineReady) {
             soundAssetsLoaded = AudioEngineRestorer.loadDefaultSamples(this);
         }
 
-        // 加载持久化配置（优先级：SharedPreferences < savedInstanceState）
+        // 优先级：SharedPreferences < savedInstanceState
         bpm = prefsManager.getBpm();
         int savedVolume = prefsManager.getTickVolume();
         boolean savedAccent = prefsManager.isAccentEnabled();
@@ -177,6 +192,7 @@ public class MainActivity extends AppCompatActivity {
             elapsedSeconds = savedInstanceState.getInt("elapsed", 0);
             isRunning = savedInstanceState.getBoolean("running", false);
             isPaused = savedInstanceState.getBoolean("paused", false);
+            isLocked = savedInstanceState.getBoolean("locked", false);
         } else if (MetronomeService.hasPersistedPlayback(this)) {
             bpm = MetronomeService.getPersistedBpm(this);
             isRunning = true;
@@ -184,34 +200,29 @@ public class MainActivity extends AppCompatActivity {
         }
 
         tickVolumePercent = savedVolume;
+        bpm = clampBpm(bpm);
         updateUI();
 
-        // 恢复 UI 控件状态（需要在 updateUI 之后，避免被覆盖）
         seekTickVolume.setProgress(tickVolumePercent);
         switchAccent.setChecked(savedAccent);
 
-        // 同步 Native 引擎（即使未启动，确保参数就绪）
         AudioEngine.nativeSetBpm(bpm);
         AudioEngine.nativeSetTickVolume(tickVolumePercent / 100.0f);
 
-        // 恢复音色
         timbreIndex = prefsManager.getTimbre();
         if (timbreIndex >= 0 && timbreIndex < AudioEngineRestorer.SOUND_PACKS.length) {
             loadTimbre(timbreIndex);
         }
 
-        // 恢复输出倍率
         gainLevel = prefsManager.getGainLevel();
         applyGainLevel();
 
-        // 恢复主题色
         accentColorIndex = prefsManager.getAccentIndex();
         applyAccentColor(ACCENT_COLORS[accentColorIndex]);
 
         tvBuildInfo.setText(BuildConfig.GIT_COMMIT + " @ " + BuildConfig.BUILD_TIME);
 
-        // 系统杀进程后通过 savedInstanceState 恢复时，native 引擎是新实例；
-        // 配置变更时则继续使用原有流和相位，不重复 Start。
+        // 杀进程重建时引擎是新实例；配置变更则沿用原流与相位
         if (isRunning) {
             boolean restored = restoreAudioEngine(bpm, isPaused);
             if (!restored) {
@@ -229,7 +240,6 @@ public class MainActivity extends AppCompatActivity {
             updateServiceNotification();
         }
 
-        // 电池优化引导（Fix #8）：仅在 onCreate 检查一次，避免频繁打扰
         checkBatteryOptimization();
     }
 
@@ -240,12 +250,13 @@ public class MainActivity extends AppCompatActivity {
         outState.putInt("elapsed", elapsedSeconds);
         outState.putBoolean("running", isRunning);
         outState.putBoolean("paused", isPaused);
+        outState.putBoolean("locked", isLocked);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 后台期间 Service 可能因来电暂停/恢复，回到前台先对齐状态。
+        // 后台期间可能被来电暂停/恢复，回前台先对齐状态
         MetronomeService.addPlaybackStateListener(serviceStateListener);
         syncFromPersistedState();
     }
@@ -262,7 +273,9 @@ public class MainActivity extends AppCompatActivity {
         timerHandler.removeCallbacks(timerRunnable);
         bpmHoldHandler.removeCallbacksAndMessages(null);
         autoLockHandler.removeCallbacksAndMessages(null);
-        if (!isChangingConfigurations()) {
+        cancelUnlockProgress();
+        // 播放中由前台服务托管：销毁时不能停服务或销毁共享引擎，否则节拍被静默掐断
+        if (!isChangingConfigurations() && !isRunning) {
             MetronomeService.stopExplicitly(this);
             AudioEngine.destroy();
         }
@@ -303,15 +316,27 @@ public class MainActivity extends AppCompatActivity {
     // ===== 事件注册 =====
 
     private void setupListeners() {
-        btnBpmMinus5.setOnClickListener(v -> adjustBpm(v, -5));
-        btnBpmMinus1.setOnClickListener(v -> adjustBpm(v, -1));
-        btnBpmPlus1.setOnClickListener(v -> adjustBpm(v, +1));
-        btnBpmPlus5.setOnClickListener(v -> adjustBpm(v, +5));
+        btnBpmMinus5.setOnClickListener(v -> adjustBpm(v, -5.0));
+        btnBpmMinus1.setOnClickListener(v -> adjustBpm(v, -1.0));
+        btnBpmPlus1.setOnClickListener(v -> adjustBpm(v, +1.0));
+        btnBpmPlus5.setOnClickListener(v -> adjustBpm(v, +5.0));
 
-        setupBpmHold(btnBpmMinus5, -5);
-        setupBpmHold(btnBpmPlus5, +5);
+        setupBpmHold(btnBpmMinus5, -5.0);
+        setupBpmHold(btnBpmPlus5, +5.0);
 
+        // 长按 START/PAUSE = 完全停止
         btnStartPause.setOnClickListener(v -> toggleStartPause());
+        btnStartPause.setOnLongClickListener(v -> {
+            if (isLocked) return false;
+            stopPlayback();
+            return true;
+        });
+
+        // 点击大号 BPM 数字：0.1 精度精确调整（按钮只做整数步进）。
+        tvBpm.setOnClickListener(v -> {
+            if (isLocked) return;
+            showBpmDialog();
+        });
 
         seekTickVolume.setProgress(tickVolumePercent);
         seekTickVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -402,7 +427,6 @@ public class MainActivity extends AppCompatActivity {
         prefsManager.setTimbre(index);
     }
 
-    /** Retry WAV loading after a deferred native initialization succeeds. */
     private void ensureAudioSamplesLoaded() {
         if (soundAssetsLoaded) return;
         soundAssetsLoaded = AudioEngineRestorer.loadDefaultSamples(this);
@@ -410,6 +434,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean restoreAudioEngine(double targetBpm, boolean paused) {
+        // 引擎可能已被 stopPlayback/nativeDestroy 释放：样本缓存随之失效，需重新载入。
+        if (!AudioEngine.isInitialized()) soundAssetsLoaded = false;
         AudioEngineRestorer.applyAudioSharingPreference(this);
         boolean restored = AudioEngineRestorer.restorePlaybackState(targetBpm, paused);
         if (restored) ensureAudioSamplesLoaded();
@@ -472,33 +498,77 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== BPM 调节 =====
 
-    /**
-     * 调整 BPM 并更新 UI/引擎/通知。
-     * @param source 触发操作的 View（用于在正确的 view 上触发触觉反馈）
-     * @param delta  BPM 变化量（正负均可）
-     */
-    private void adjustBpm(View source, int delta) {
-        double newBpm = bpm + delta;
-        if (newBpm < 120.0) newBpm = 120.0;
-        if (newBpm > 220.0) newBpm = 220.0;
+    /** 调整 BPM 并同步 UI/引擎/通知；@param delta 支持 0.1 步进 */
+    private void adjustBpm(View source, double delta) {
+        double newBpm = clampBpm(bpm + delta);
         if (newBpm != bpm) {
-            bpm = newBpm;
-            AudioEngine.nativeSetBpm(bpm);
-            updateBpmDisplay();
-            animateBpmChange();
+            applyBpm(newBpm);
 
-            // 触觉反馈：在实际触发操作的 view 上执行，避免在已禁用的按钮上误触发
             source.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-
-            // 持久化 BPM（防抖）
             scheduleBpmSave();
-
-            // 同步服务通知中的 BPM 显示（Fix #22）
             updateServiceNotification();
         }
     }
 
-    private void setupBpmHold(Button btn, int delta) {
+    /** 统一入口：夹取 → 量化到 0.1 → 同步引擎与 UI。 */
+    private void applyBpm(double newBpm) {
+        bpm = clampBpm(newBpm);
+        AudioEngine.nativeSetBpm(bpm);
+        updateBpmDisplay();
+        animateBpmChange();
+    }
+
+    /** 夹取到产品区间并量化到 0.1，避免 179.9999999 之类的浮点尾巴。 */
+    private static double clampBpm(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) return 180.0;
+        double clamped = Math.max(MIN_BPM, Math.min(MAX_BPM, value));
+        return Math.round(clamped * BPM_STEPS_PER_UNIT) / (double) BPM_STEPS_PER_UNIT;
+    }
+
+    private void showBpmDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dpToPx(20);
+        box.setPadding(pad, pad, pad, 0);
+
+        TextView valueView = new TextView(this);
+        valueView.setTextSize(32);
+        valueView.setGravity(Gravity.CENTER);
+        valueView.setTextColor(ACCENT_COLORS[accentColorIndex]);
+        valueView.setText(String.format(Locale.US, "%.1f", bpm));
+        box.addView(valueView);
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(Math.round((float) ((MAX_BPM - MIN_BPM) * BPM_STEPS_PER_UNIT)));
+        seek.setProgress((int) Math.round((bpm - MIN_BPM) * BPM_STEPS_PER_UNIT));
+        seek.setProgressTintList(ColorStateList.valueOf(ACCENT_COLORS[accentColorIndex]));
+        seek.setThumbTintList(ColorStateList.valueOf(ACCENT_COLORS[accentColorIndex]));
+        box.addView(seek);
+
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                double value = MIN_BPM + progress / (double) BPM_STEPS_PER_UNIT;
+                valueView.setText(String.format(Locale.US, "%.1f", value));
+                if (fromUser) sb.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dialog_bpm_title)
+                .setView(box)
+                .setPositiveButton(R.string.btn_ok, (d, w) -> {
+                    applyBpm(MIN_BPM + seek.getProgress() / (double) BPM_STEPS_PER_UNIT);
+                    scheduleBpmSave();
+                    updateServiceNotification();
+                })
+                .setNegativeButton(R.string.btn_cancel, null)
+                .show();
+    }
+
+    private void setupBpmHold(Button btn, double delta) {
         btn.setOnTouchListener(new View.OnTouchListener() {
             private boolean isLongPress = false;
 
@@ -532,7 +602,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void startBpmRepeat(View source, int delta) {
+    private void startBpmRepeat(View source, double delta) {
         stopBpmRepeat();
         bpmHoldRunnable = new Runnable() {
             @Override
@@ -549,7 +619,6 @@ public class MainActivity extends AppCompatActivity {
             bpmHoldHandler.removeCallbacks(bpmHoldRunnable);
             bpmHoldRunnable = null;
         }
-        // 长按结束时立即持久化 BPM
         if (pendingBpmSave != null) {
             prefsSaveHandler.removeCallbacks(pendingBpmSave);
             prefsManager.setBpm(bpm);
@@ -587,7 +656,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleStartPause() {
         if (!isRunning) {
-            // START
+            maybeRequestNotificationPermission();
             if (!restoreAudioEngine(bpm, false)) {
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
@@ -600,7 +669,7 @@ public class MainActivity extends AppCompatActivity {
             scheduleAutoLock();
             maybeRequestPhonePermission();
         } else if (isPaused) {
-            // RESUME
+            maybeRequestNotificationPermission();
             if (!restoreAudioEngine(bpm, false)) {
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
@@ -610,7 +679,6 @@ public class MainActivity extends AppCompatActivity {
             scheduleAutoLock();
             maybeRequestPhonePermission();
         } else {
-            // PAUSE（用户手动暂停，不会被自动恢复）
             isPaused = true;
             AudioEngine.nativePause();
             timerHandler.removeCallbacks(timerRunnable);
@@ -618,10 +686,7 @@ public class MainActivity extends AppCompatActivity {
         }
         updateUI();
 
-        // Fix #7: 前台服务管理
-        //   Running: 启动/维持服务
-        //   Paused:  更新通知状态（服务继续运行，以便快速 Resume）
-        //   (Activity 最终销毁时通过 stopExplicitly 结束服务)
+        // Paused 时服务继续运行以便快速 Resume；真正结束走 stopPlayback()
         if (isRunning) {
             Intent svcIntent = new Intent(this, MetronomeService.class);
             svcIntent.putExtra("bpm", bpm);
@@ -629,6 +694,32 @@ public class MainActivity extends AppCompatActivity {
             svcIntent.putExtra("running", isRunning);
             startService(svcIntent);
         }
+    }
+
+    /** 完全停止：结束计时/前台服务/原生流并清除可恢复运行态。 */
+    private void stopPlayback() {
+        AudioEngine.nativeStop();
+        // 释放流，避免以 OPEN 状态长期占用 EXCLUSIVE 通路
+        AudioEngine.destroy();
+        soundAssetsLoaded = false;
+        isRunning = false;
+        isPaused = false;
+        elapsedSeconds = 0;
+        timerHandler.removeCallbacks(timerRunnable);
+        cancelAutoLock();
+        cancelUnlockProgress();
+        updateUI();
+        MetronomeService.stopExplicitly(this);
+        Toast.makeText(this, R.string.msg_stopped, Toast.LENGTH_SHORT).show();
+    }
+
+    /** Back = 显式停止，后台保活靠 Home 键；否则 KEY_RUNNING 残留会让下次冷启动自动出声。 */
+    @Override
+    public void onBackPressed() {
+        if (isRunning) {
+            stopPlayback();
+        }
+        super.onBackPressed();
     }
 
     // ===== RESTART =====
@@ -653,12 +744,8 @@ public class MainActivity extends AppCompatActivity {
         updateServiceNotification();
     }
 
-    // ===== 前台服务通知同步（Fix #22）=====
+    // ===== 前台服务通知同步 =====
 
-    /**
-     * 向 MetronomeService 发送当前 BPM 和暂停状态，触发通知内容更新。
-     * 只在服务已启动（isRunning=true）时才有效。
-     */
     private void updateServiceNotification() {
         if (!isRunning) return;
         Intent svcIntent = new Intent(this, MetronomeService.class);
@@ -670,10 +757,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== 来电自动暂停（权限 / 与 Service 状态同步）=====
 
-    /**
-     * 惰性申请 READ_PHONE_STATE（仅用于来电自动暂停）。
-     * 用户拒绝不影响节拍器功能；已授予时顺带确保 Service 已注册监听。
-     */
+    /** 惰性申请 READ_PHONE_STATE；已授予时确保 Service 已注册监听。 */
     private void maybeRequestPhonePermission() {
         if (phonePermissionLauncher == null) return;
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
@@ -684,6 +768,19 @@ public class MainActivity extends AppCompatActivity {
         if (phonePermissionRequested) return;
         phonePermissionRequested = true;
         phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE);
+    }
+
+    /** Android 13+ 通知需 POST_NOTIFICATIONS，否则被抑制且无法回到 App。 */
+    private void maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (notificationPermissionLauncher == null) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        if (notificationPermissionRequested) return;
+        notificationPermissionRequested = true;
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
     }
 
     /** 回到前台时读取持久化状态，对齐 UI 与计时器（如通话暂停仍在进行）。 */
@@ -698,6 +795,8 @@ public class MainActivity extends AppCompatActivity {
         if (running == isRunning && paused == isPaused) return;
         isRunning = running;
         isPaused = paused;
+        // 通知栏 STOP 不会走 stopPlayback()，必须在这里归零计时器
+        if (!running) elapsedSeconds = 0;
         timerHandler.removeCallbacks(timerRunnable);
         if (isRunning && !isPaused) {
             timerHandler.postDelayed(timerRunnable, 1000);
@@ -708,12 +807,9 @@ public class MainActivity extends AppCompatActivity {
         updateUI();
     }
 
-    // ===== 电池优化引导（Fix #8）=====
+    // ===== 电池优化引导 =====
 
-    /**
-     * 检查是否已在电池优化白名单，否则弹框引导用户添加。
-     * 仅在 onCreate 时检查一次，避免每次 START 都打扰。
-     */
+    /** 仅在 onCreate 检查一次，避免每次 START 都打扰。 */
     private void checkBatteryOptimization() {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm == null) return;
@@ -743,10 +839,15 @@ public class MainActivity extends AppCompatActivity {
         updateTimerDisplay();
         updateStatusDisplay();
         updateLockState();
+        if (isRunning && !isPaused) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
     }
 
     private void updateBpmDisplay() {
-        tvBpm.setText(String.valueOf((int) bpm));
+        tvBpm.setText(String.format(Locale.US, "%.1f", bpm));
     }
 
     private void updateTimerDisplay() {
@@ -820,43 +921,32 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyAccentColor(int color) {
-        // 主题色圆点
         GradientDrawable circleBg = new GradientDrawable();
         circleBg.setShape(GradientDrawable.OVAL);
         circleBg.setColor(color);
         btnThemeColor.setBackground(circleBg);
-        // 更新主题名文字
         boolean isEn = getResources().getConfiguration().getLocales().get(0).getLanguage().equals("en");
         tvThemeName.setText(isEn ? ACCENT_NAMES_EN[accentColorIndex] : ACCENT_NAMES_ZH[accentColorIndex]);
         tvThemeName.setTextColor(color);
-        // BPM 微调按钮（深色背景 + 主题色边框 + 涟漪）
         for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
             btn.setBackground(makeBpmRippleBg(color));
         }
-        // START/PAUSE 按钮（主题色实心）
         btnStartPause.setBackground(makeStartPauseBg(color));
-        // 倍率按钮
         btnGain.setBackground(makeBpmRippleBg(color));
         btnGain.setTextColor(color);
-        // SeekBar
         ColorStateList csl = ColorStateList.valueOf(color);
         seekTickVolume.setThumbTintList(csl);
         seekTickVolume.setProgressTintList(csl);
-        // 锁定进度圈（解锁动画的圆弧颜色）
         unlockProgress.setProgressTintList(csl);
-        // Switch（选中态为主题色）
         int[][] st = {{android.R.attr.state_checked}, {}};
         switchAccent.setThumbTintList(new ColorStateList(st, new int[]{color, 0xFF888888}));
         int trackOn = Color.argb(128, Color.red(color), Color.green(color), Color.blue(color));
         switchAccent.setTrackTintList(new ColorStateList(st, new int[]{trackOn, 0xFF444444}));
-        // 音色行文字 + 外框（重建 ripple 背景以跟随主题色）
         tvTimbreName.setTextColor(color);
         tvTimbreArrow.setTextColor(color);
         layoutTimbre.setBackground(makeTimbreRowBg(color));
-        // BPM 数字 + 标签
         tvBpm.setTextColor(color);
         tvBpmLabel.setTextColor(color);
-        // RESTART 按钮
         btnRestart.setBackground(makeBpmRippleBg(color));
         btnRestart.setTextColor(color);
     }
@@ -896,16 +986,12 @@ public class MainActivity extends AppCompatActivity {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
-        private void toggleLanguage() {
+    private void toggleLanguage() {
         String next = prefsManager.getLanguage().equals("zh") ? "en" : "zh";
         prefsManager.setLanguage(next);
         applyLanguage(next);
-        Intent intent = getBaseContext().getPackageManager()
-                .getLaunchIntentForPackage(getBaseContext().getPackageName());
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-        finishAffinity();
-        System.exit(0);
+        // recreate() 不杀进程，后台服务与 WakeLock 不受影响
+        recreate();
     }
 
     private void applyLanguage(String lang) {
@@ -920,12 +1006,15 @@ public class MainActivity extends AppCompatActivity {
     private void updateLockState() {
         boolean enabled = !isLocked;
         btnLock.setText(isLocked ? "🔒" : "🔓");
+        btnLock.setContentDescription(getString(isLocked ? R.string.desc_unlock : R.string.desc_lock));
         int accent = ACCENT_COLORS[accentColorIndex];
         int borderColor = isLocked ? Color.argb(102, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent;
+        // 锁定覆盖所有会改变运行状态的入口：跑步中误触 = 停拍
         for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
             btn.setEnabled(enabled);
             btn.setBackground(makeBpmRippleBg(borderColor));
         }
+        tvBpm.setEnabled(enabled);
         seekTickVolume.setEnabled(enabled);
         seekTickVolume.setAlpha(enabled ? 1.0f : 0.4f);
         btnGain.setEnabled(enabled);
@@ -933,5 +1022,16 @@ public class MainActivity extends AppCompatActivity {
         switchAccent.setEnabled(enabled);
         layoutTimbre.setEnabled(enabled);
         layoutTimbre.setAlpha(enabled ? 1.0f : 0.4f);
+        btnStartPause.setEnabled(enabled);
+        btnStartPause.setAlpha(enabled ? 1.0f : 0.4f);
+        btnRestart.setEnabled(enabled);
+        btnRestart.setAlpha(enabled ? 1.0f : 0.4f);
+        layoutTheme.setEnabled(enabled);
+        layoutTheme.setAlpha(enabled ? 1.0f : 0.4f);
+        btnLangToggle.setEnabled(enabled);
+        btnLangToggle.setAlpha(enabled ? 1.0f : 0.4f);
+        if (layoutBpmControls != null) {
+            layoutBpmControls.setAlpha(enabled ? 1.0f : 0.4f);
+        }
     }
 }

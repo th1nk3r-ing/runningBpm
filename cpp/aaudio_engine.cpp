@@ -36,8 +36,7 @@ static int32_t gStreamSampleRate = beat::kDefaultSampleRate;
 static int32_t gStreamChannels = 1;
 static std::atomic<bool> gNativeInitialized{false};
 
-// 已加载样本按 gSamplesLoadedRate 重采样保存；采样率变化后据此重采样（资产）或
-// 重新生成（fallback），再推回 gEngine。
+// 样本按 gSamplesLoadedRate 保存；采样率变化后据此重采样或重新生成，再推回 gEngine
 static std::vector<float> gTickHiSamples;
 static std::vector<float> gTickLoSamples;
 static std::vector<float> gChimeSamples;
@@ -48,12 +47,10 @@ static bool gUseAssetSamples = false;  // false = 仅生成式 fallback tick
 // 流断开标志：errorCallback（音频线程）写入，主线程检查并重建
 static std::atomic<bool> gStreamError{false};
 
-// 是否有其它音频在播放（由 Java 侧 AudioManager.isMusicActive() 传入）：
-// true → 直接以 SHARED 开流与系统混音；false → 维持 EXCLUSIVE 优先（低延迟）。
+// 其它音频在播时（Java 侧 isMusicActive）固定 SHARED 混音，否则 EXCLUSIVE 优先
 static std::atomic<bool> gMixWithOthers{false};
 
-// WAV 加载失败时的 fallback：生成强/弱拍默认木鱼采样。
-// sampleRate 必须与流实际采样率一致，否则 click 音高/时长失真。
+// WAV 失败时的 fallback；sampleRate 必须与流一致，否则音高/时长失真
 static void GenerateDefaultTickSamples(std::vector<float>& outTickHi,
                                         std::vector<float>& outTickLo,
                                         int sampleRate) {
@@ -85,18 +82,12 @@ static bool LoadWavFromAsset(AAssetManager* mgr, const char* path,
     return ok;
 }
 
-/** 重采样目标采样率：流打开后用实际采样率，否则默认值。 */
 static int CurrentTargetSampleRate() {
     return (gStreamSampleRate > 0) ? static_cast<int>(gStreamSampleRate)
                                    : beat::kDefaultSampleRate;
 }
 
-/**
- * 两个加载入口的公共实现。tickHi 必须可加载，否则不装载；
- * tickLo 为 null/空/失败 → 复用强拍（loOk=false）；chime 为 null/空 → 跳过。
- * 均按 CurrentTargetSampleRate() 重采样并更新 gSamplesLoadedRate。
- * 返回各部分独立标志，布尔契约由调用方决定。
- */
+/** 两个加载入口的公共实现：tickHi 必须成功，tickLo 缺失/失败复用强拍，chime 可跳过。 */
 struct SampleLoadResult {
     bool hiOk;
     bool loOk;
@@ -129,7 +120,6 @@ static SampleLoadResult LoadSamplesIntoEngine(AAssetManager* mgr, const char* ti
         }
     }
     if (!result.loOk) {
-        // lo 缺失/失败：弱拍复用强拍样本（单音色）
         gEngine.LoadSoundPack(hiSamples.data(), hiSamples.size(),
                               hiSamples.data(), hiSamples.size());
         gTickHiSamples = hiSamples;
@@ -157,8 +147,7 @@ static SampleLoadResult LoadSamplesIntoEngine(AAssetManager* mgr, const char* ti
     return result;
 }
 
-/** 采样率变化后的样本重载：只修正按旧率重采样的音色（音高/时长）；
- *  Clock::SetSampleRate 已保证节拍速度，不触碰时钟数学。 */
+/** 采样率变化后重采样音色（音高/时长）；节拍速度由 Clock::SetSampleRate 负责。 */
 static void ReloadSamplesIfSampleRateChanged() {
     if (gSamplesLoadedRate <= 0 || gSamplesLoadedRate == gStreamSampleRate) return;
 
@@ -187,8 +176,7 @@ static void ReloadSamplesIfSampleRateChanged() {
     gSamplesLoadedRate = gStreamSampleRate;
 }
 
-// 复用的 mono 临时缓冲：音频线程独占，nativeInit 中预 reserve 4096 帧；
-// callback 只在容量足够时 resize，否则输出静音 — 不在回调中扩容。
+// 复用的 mono 临时缓冲：nativeInit 预 reserve 4096 帧，回调内禁止扩容
 static std::vector<float> gMonoBuf;
 
 static aaudio_data_callback_result_t dataCallback(
@@ -198,10 +186,9 @@ static aaudio_data_callback_result_t dataCallback(
     if (gStreamChannels <= 1) {
         gEngine.OnAudioCallback(out, numFrames);
     } else {
-        // Defensive path only：OpenStream 固定请求 channelCount=1，
-        // 当前配置下 gStreamChannels > 1 不会被选择；保留以防未来放开单声道限制。
+        // 防御路径：OpenStream 固定 mono，保留以支持未来多声道
         if (gMonoBuf.capacity() < static_cast<size_t>(numFrames)) {
-            // 回调线程禁止扩容；异常大 buffer 直接输出静音，等待上层恢复。
+            // 回调内不能扩容：异常大 buffer 直接静音
             const size_t outputSamples = static_cast<size_t>(numFrames) *
                     static_cast<size_t>(gStreamChannels);
             std::fill_n(out, outputSamples, 0.0f);
@@ -229,11 +216,7 @@ static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_r
     }
 }
 
-/**
- * 显式声明流用途为媒体/音乐。
- * AAudioStreamBuilder_setUsage / setContentType 引入于 API 28，而 minSdk 为 26，
- * 故在 API 28+ 运行时用 dlsym 取用；API 26/27 下依赖 AAudio 默认值（本即 MEDIA/MUSIC）。
- */
+/** 声明流用途为媒体/音乐；setUsage/setContentType 自 API 28 才有，故 dlsym 取用。 */
 static void ApplyMediaStreamAttributes(AAudioStreamBuilder* builder) {
     if (android_get_device_api_level() < 28) return;
     typedef void (*SetUsageFn)(AAudioStreamBuilder*, aaudio_usage_t);
@@ -259,14 +242,13 @@ static bool OpenStream() {
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
     ApplyMediaStreamAttributes(builder);
-    // 固定 mono + 48kHz：多通道后半 buffer 会读到未初始化内存，且避免 AAudio 重采样漂移
+    // 固定 mono：多通道后半 buffer 会读到未初始化内存
     AAudioStreamBuilder_setChannelCount(builder, 1);
     AAudioStreamBuilder_setSampleRate(builder, beat::kDefaultSampleRate);
     AAudioStreamBuilder_setDataCallback(builder, dataCallback, nullptr);
     AAudioStreamBuilder_setErrorCallback(builder, errorCallback, nullptr);
 
-    // 有其它音频在播放时直接 SHARED（绕过独占、保证混音）；否则先试 EXCLUSIVE 低延迟，
-    // 失败再回退 SHARED。
+    // 有其它音频时直接 SHARED；否则先试 EXCLUSIVE 低延迟，失败回退 SHARED
     if (gMixWithOthers.load(std::memory_order_relaxed)) {
         AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
         result = AAudioStreamBuilder_openStream(builder, &gStream);
@@ -290,8 +272,16 @@ static bool OpenStream() {
 
     gStreamSampleRate = AAudioStream_getSampleRate(gStream);
     gStreamChannels   = AAudioStream_getChannelCount(gStream);
-    // 采样率变化后的样本重载：音高/音色时长漂移修正。
-    // 节拍速度不受影响（Clock::SetSampleRate 已重算 framesPerTick），勿动时钟数学。
+    if (!beat::IsValidSampleRate(gStreamSampleRate)) {
+        // 0 会让 Clock 的 BPM 更新静默失效，必须回落默认值
+        LOGE("stream returned invalid sample rate %d, falling back to %d",
+             gStreamSampleRate, beat::kDefaultSampleRate);
+        gStreamSampleRate = beat::kDefaultSampleRate;
+    }
+    if (gStreamChannels <= 0) {
+        LOGE("stream returned invalid channel count %d, assuming mono", gStreamChannels);
+        gStreamChannels = 1;
+    }
     ReloadSamplesIfSampleRateChanged();
     gEngine.SetSampleRate(gStreamSampleRate);
 
@@ -317,16 +307,61 @@ static void CloseStream() {
     }
 }
 
-/**
- * 重建流并按引擎状态决定是否立即启动；必须在非音频线程调用。
- */
+static bool IsStreamStarted() {
+    if (gStream == nullptr) return false;
+    const aaudio_stream_state_t state = AAudioStream_getState(gStream);
+    return state == AAUDIO_STREAM_STATE_STARTED || state == AAUDIO_STREAM_STATE_STARTING;
+}
+
+/** 幂等启动：已 STARTED/STARTING 时直接成功，避免重复 requestStart 触发 INVALID_STATE 拆流。 */
+static bool EnsureStreamStarted() {
+    if (gStream == nullptr) return false;
+    const aaudio_stream_state_t state = AAudioStream_getState(gStream);
+    if (state == AAUDIO_STREAM_STATE_STARTED || state == AAUDIO_STREAM_STATE_STARTING) {
+        return true;
+    }
+    if (state == AAUDIO_STREAM_STATE_DISCONNECTED ||
+        state == AAUDIO_STREAM_STATE_CLOSING ||
+        state == AAUDIO_STREAM_STATE_CLOSED ||
+        state == AAUDIO_STREAM_STATE_UNINITIALIZED) {
+        LOGE("EnsureStreamStarted: stream not startable (state=%d)", static_cast<int>(state));
+        return false;
+    }
+    const aaudio_result_t r = AAudioStream_requestStart(gStream);
+    if (r != AAUDIO_OK) {
+        LOGE("EnsureStreamStarted: requestStart failed: %d", r);
+        return false;
+    }
+    return true;
+}
+
+static void RequestStreamPause() {
+    if (gStream == nullptr) return;
+    if (!IsStreamStarted() && AAudioStream_getState(gStream) != AAUDIO_STREAM_STATE_PAUSING) return;
+    const aaudio_result_t r = AAudioStream_requestPause(gStream);
+    if (r != AAUDIO_OK) LOGE("requestPause failed: %d", r);
+}
+
+static void RequestStreamStop() {
+    if (gStream == nullptr) return;
+    const aaudio_stream_state_t state = AAudioStream_getState(gStream);
+    if (state == AAUDIO_STREAM_STATE_OPEN ||
+        state == AAUDIO_STREAM_STATE_STOPPED ||
+        state == AAUDIO_STREAM_STATE_CLOSED ||
+        state == AAUDIO_STREAM_STATE_UNINITIALIZED) {
+        return;
+    }
+    const aaudio_result_t r = AAudioStream_requestStop(gStream);
+    if (r != AAUDIO_OK) LOGE("requestStop failed: %d", r);
+}
+
+/** 重建流并按引擎状态决定是否启动；必须在非音频线程调用。 */
 static bool RebuildStream() {
     LOGI("RebuildStream: closing dead stream");
     CloseStream();
 
     if (!OpenStream()) {
-        // 重建期间可能已有其它 App 开始播放：以 SHARED 再试一次保证混音共存，
-        // 失败则还原原偏好。
+        // 重建期间可能已有其它 App 播放：以 SHARED 再试一次，失败还原偏好
         const bool prevMix = gMixWithOthers.load(std::memory_order_relaxed);
         LOGI("RebuildStream: OpenStream failed, retrying with SHARED");
         gMixWithOthers.store(true, std::memory_order_relaxed);
@@ -337,23 +372,19 @@ static bool RebuildStream() {
         }
     }
 
-    // Running/Paused 均重启流（Paused 时引擎输出静音，Resume 零延迟）；Idle 只 Open
+    // 仅 Running 需要流在跑；Paused 保持"已打开未启动"，启动只由 nativeResume 负责
     AudioEngine::State s = gEngine.GetState();
-    if (s == AudioEngine::State::Running || s == AudioEngine::State::Paused) {
-        aaudio_result_t result = AAudioStream_requestStart(gStream);
-        if (result == AAUDIO_OK) {
-            LOGI("RebuildStream: stream restarted (state=%d)", static_cast<int>(s));
-        } else {
-            LOGE("RebuildStream: requestStart failed: %d", result);
-            return false;
-        }
+    if (s == AudioEngine::State::Running) {
+        if (!EnsureStreamStarted()) return false;
+        LOGI("RebuildStream: stream restarted (state=%d)", static_cast<int>(s));
     } else {
-        LOGI("RebuildStream: engine idle, stream opened but not started");
+        LOGI("RebuildStream: engine state=%d, stream opened but not started",
+             static_cast<int>(s));
     }
     return true;
 }
 
-/** 初始化流及 fallback 样本；供 Activity 与 sticky Service 的恢复路径共用。 */
+/** 初始化流及 fallback 样本；Activity 与 sticky Service 共用。 */
 static bool InitializeEngine() {
     if (!OpenStream()) return false;
 
@@ -371,20 +402,18 @@ static bool InitializeEngine() {
         if (gMonoBuf.capacity() < 4096) gMonoBuf.reserve(4096);
         gNativeInitialized.store(true, std::memory_order_release);
     }
-    // 每拍打印。
     gEngine.SetTickCallback(&LogTick, nullptr);
     return true;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeInit(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeInitRaw(JNIEnv* /*env*/, jclass /*clazz*/) {
     LOGI("nativeInit");
-    // 打开流但不启动；实际失败会反馈给 Java，之后可由 START 重试。
     return InitializeEngine() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
+Java_com_runbeat_audio_AudioEngine_nativeStartRaw(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
     LOGI("nativeStart(%.1f)", bpm);
     if (gStreamError.exchange(false, std::memory_order_acq_rel)) {
         CloseStream();
@@ -394,9 +423,8 @@ Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*
         return JNI_FALSE;
     }
     gEngine.Start(static_cast<double>(bpm));
-    aaudio_result_t r = AAudioStream_requestStart(gStream);
-    if (r != AAUDIO_OK) {
-        LOGE("nativeStart: requestStart failed: %d", r);
+    if (!EnsureStreamStarted()) {
+        LOGE("nativeStart: stream start failed");
         gEngine.Stop();
         gStreamError.store(true, std::memory_order_release);
         return JNI_FALSE;
@@ -405,27 +433,21 @@ Java_com_runbeat_audio_AudioEngine_nativeStart(JNIEnv * /*env*/, jclass /*clazz*
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeStop(JNIEnv * /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeStopRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeStop");
     gEngine.Stop();
-    if (gStream) {
-        aaudio_result_t r = AAudioStream_requestStop(gStream);
-        if (r != AAUDIO_OK) LOGE("nativeStop: requestStop failed: %d", r);
-    }
+    RequestStreamStop();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativePause(JNIEnv * /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativePauseRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativePause");
     gEngine.Pause();
-    if (gStream) {
-        aaudio_result_t r = AAudioStream_requestPause(gStream);
-        if (r != AAUDIO_OK) LOGE("nativePause: requestPause failed: %d", r);
-    }
+    RequestStreamPause();
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeResumeRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeResume");
     if (gStreamError.exchange(false, std::memory_order_acq_rel)) {
         CloseStream();
@@ -433,9 +455,8 @@ Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz
     if (gStream == nullptr && !InitializeEngine()) return JNI_FALSE;
     if (gStream == nullptr) return JNI_FALSE;
     gEngine.Resume();
-    aaudio_result_t r = AAudioStream_requestStart(gStream);
-    if (r != AAUDIO_OK) {
-        LOGE("nativeResume: requestStart failed: %d", r);
+    if (!EnsureStreamStarted()) {
+        LOGE("nativeResume: stream start failed");
         gEngine.Pause();
         gStreamError.store(true, std::memory_order_release);
         return JNI_FALSE;
@@ -444,61 +465,59 @@ Java_com_runbeat_audio_AudioEngine_nativeResume(JNIEnv * /*env*/, jclass /*clazz
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeGetState(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeGetStateRaw(JNIEnv* /*env*/, jclass /*clazz*/) {
     return static_cast<jint>(gEngine.GetState());
 }
 
 /** XRun（丢帧）累计次数；未开流返回 -1。 */
 extern "C" JNIEXPORT jint JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeGetXRunCount(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeGetXRunCountRaw(JNIEnv* /*env*/, jclass /*clazz*/) {
     if (gStream == nullptr) return -1;
     return static_cast<jint>(AAudioStream_getXRunCount(gStream));
 }
 
-/** 本次运行累计拍数。 */
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeGetBeatSeq(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeGetBeatSeqRaw(JNIEnv* /*env*/, jclass /*clazz*/) {
     return static_cast<jlong>(gEngine.GetBeatSeq());
 }
 
 // setter 多为高频调用，不逐次刷屏；BPM 例外，但也用 VERBOSE（长按会连续触发）。
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetBpm(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
+Java_com_runbeat_audio_AudioEngine_nativeSetBpmRaw(JNIEnv * /*env*/, jclass /*clazz*/, jdouble bpm) {
     LOGV("nativeSetBpm(%.3f)", static_cast<double>(bpm));
     gEngine.SetBpm(static_cast<double>(bpm));
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetTickVolume(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
+Java_com_runbeat_audio_AudioEngine_nativeSetTickVolumeRaw(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
     gEngine.SetTickVolume(static_cast<double>(vol));
 }
 
 // PLANNED（整点报时）：Java 层暂未接线，接口保留。
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetChimeVolume(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
+Java_com_runbeat_audio_AudioEngine_nativeSetChimeVolumeRaw(JNIEnv * /*env*/, jclass /*clazz*/, jdouble vol) {
     gEngine.SetChimeVolume(static_cast<double>(vol));
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetAccent(JNIEnv * /*env*/, jclass /*clazz*/, jboolean on) {
+Java_com_runbeat_audio_AudioEngine_nativeSetAccentRaw(JNIEnv * /*env*/, jclass /*clazz*/, jboolean on) {
     gEngine.SetAccent(static_cast<bool>(on));
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetOutputGain(JNIEnv * /*env*/, jclass /*clazz*/, jdouble gain) {
+Java_com_runbeat_audio_AudioEngine_nativeSetOutputGainRaw(JNIEnv * /*env*/, jclass /*clazz*/, jdouble gain) {
     gEngine.SetOutputGain(static_cast<double>(gain));
 }
 
-/** 由 Java 侧在开流前调用：告知是否有其它音频在播放，决定 SHARED/EXCLUSIVE 开流策略。 */
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeSetMixWithOthers(
+Java_com_runbeat_audio_AudioEngine_nativeSetMixWithOthersRaw(
         JNIEnv * /*env*/, jclass /*clazz*/, jboolean mixWithOthers) {
     gMixWithOthers.store(static_cast<bool>(mixWithOthers), std::memory_order_relaxed);
 }
 
 /** 契约：hi、lo、（提供的）chime 任一失败即 false；chime 路径缺失不算失败。 */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
+Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssetsRaw(
         JNIEnv* env, jclass /*clazz*/,
         jobject assetManagerObj,
         jstring tickHiPath, jstring tickLoPath, jstring chimePath) {
@@ -520,7 +539,7 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadWavAssets(
 
 /** 契约：仅要求 tickHi 成功；tickLo 缺失/失败时两路复用强拍（单音色）。 */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
+Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPackRaw(
         JNIEnv* env, jclass /*clazz*/,
         jobject assetManagerObj,
         jstring tickHiPath, jstring tickLoPath) {
@@ -539,13 +558,13 @@ Java_com_runbeat_audio_AudioEngine_nativeLoadSoundPack(
 
 // PLANNED（整点报时）：Java 层暂未接线，接口保留。
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeTriggerChime(JNIEnv * /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeTriggerChimeRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     gEngine.TriggerChime();
 }
 
 /** 由 Java 层 1 秒定时器在主线程调用；返回是否重建过流。 */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeeded(
+Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeededRaw(
         JNIEnv* /*env*/, jclass /*clazz*/) {
     if (!gStreamError.load(std::memory_order_relaxed)) {
         return JNI_FALSE;
@@ -558,9 +577,17 @@ Java_com_runbeat_audio_AudioEngine_nativeRebuildStreamIfNeeded(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_runbeat_audio_AudioEngine_nativeDestroy(JNIEnv* /*env*/, jclass /*clazz*/) {
+Java_com_runbeat_audio_AudioEngine_nativeDestroyRaw(JNIEnv* /*env*/, jclass /*clazz*/) {
     LOGI("nativeDestroy");
     gEngine.Stop();
     CloseStream();
+    // 缓存必须与引擎内样本一起失效，否则下次初始化会用合成音覆盖用户音色
+    gTickHiSamples.clear();
+    gTickLoSamples.clear();
+    gChimeSamples.clear();
+    gHaveChimeSamples = false;
+    gSamplesLoadedRate = 0;
+    gUseAssetSamples = false;
+    gStreamError.store(false, std::memory_order_relaxed);
     gNativeInitialized.store(false, std::memory_order_release);
 }

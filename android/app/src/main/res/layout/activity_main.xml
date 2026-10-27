@@ -22,7 +22,6 @@
         android:gravity="center_vertical"
         android:layout_marginBottom="8dp">
 
-        <!-- 语言切换按钮 -->
         <TextView
             android:id="@+id/btnLangToggle"
             android:layout_width="wrap_content"
@@ -132,12 +131,17 @@
         <TextView
             android:id="@+id/tvBpm"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="150dp"
             android:text="120"
             android:textColor="@color/textPrimary"
             android:textSize="120sp"
             android:fontFamily="sans-serif-light"
             android:gravity="center"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="64sp"
+            android:autoSizeMaxTextSize="120sp"
+            android:autoSizeStepGranularity="4sp"
             android:includeFontPadding="false" />
 
         <TextView

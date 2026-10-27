@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 后台跑步节拍器保活与通话暂停所需权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 纯音频播放的前台服务类型（Android 14+ 必须是 mediaPlayback） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Android 13+ 前台服务通知需要运行时授权，否则常驻通知被系统抑制 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 引导用户将本应用加入电池优化白名单，确保后台跑步节拍器 4h+ 不被杀死 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -20,8 +22,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:keepScreenOn="true">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -31,7 +32,7 @@
         <service
             android:name=".MetronomeService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 

@@ -1,116 +1,186 @@
 package com.runbeat.audio;
 
+import android.util.Log;
+
 /**
- * JNI 桥接类 — Native C++ 音频引擎接口。
- * native 方法由 cpp/aaudio_engine.cpp 实现。
+ * JNI 桥接 — native 实现在 cpp/aaudio_engine.cpp；*Raw 私有，包装方法先查
+ * {@link #isAvailable()}，库加载失败时降级为 no-op / false 而非抛 UnsatisfiedLinkError。
  */
 public class AudioEngine {
 
+    private static final String TAG = "AudioEngine";
+
+    private static boolean libraryLoaded;
     private static boolean initialized;
 
     static {
-        System.loadLibrary("runbeat");
+        try {
+            System.loadLibrary("runbeat");
+            libraryLoaded = true;
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to load librunbeat.so — audio disabled", t);
+        }
     }
 
-    // ========== 初始化和清理 ==========
+    private AudioEngine() {}
 
-    /** 初始化引擎、生成采样、打开 AAudio 流 */
-    public static native boolean nativeInit();
+    public static boolean isAvailable() {
+        return libraryLoaded;
+    }
 
-    /** 从 Assets 加载 WAV 采样文件 */
-    public static native boolean nativeLoadWavAssets(
-            android.content.res.AssetManager mgr,
-            String tickHiPath, String tickLoPath, String chimePath);
-
-    /** 释放引擎和 AAudio 流 */
-    public static native void nativeDestroy();
-
-    /** Idempotent lifecycle wrapper; configuration changes keep the native stream alive. */
     public static synchronized boolean isInitialized() {
         return initialized;
     }
 
     public static synchronized boolean initialize() {
-        if (!initialized) {
-            initialized = nativeInit();
-        }
+        if (!libraryLoaded) return false;
+        if (!initialized) initialized = nativeInitRaw();
         return initialized;
     }
 
     public static synchronized void destroy() {
-        // Native start/resume can recover and open a stream even when nativeInit failed.
-        // Always destroy the native side; nativeDestroy is idempotent.
-        nativeDestroy();
+        if (libraryLoaded) nativeDestroyRaw();
         initialized = false;
     }
 
-    // ========== JNI 探针 ==========
-    // （nativeHello 探针已删除：全仓库无调用者。）
+    // ========== JNI 原始绑定（库未加载时不得直接调用） ==========
 
-    // ========== 引擎生命周期 ==========
+    private static native boolean nativeInitRaw();
 
-    public static native boolean nativeStart(double bpm);
+    private static native boolean nativeLoadWavAssetsRaw(
+            android.content.res.AssetManager mgr,
+            String tickHiPath, String tickLoPath, String chimePath);
 
-    public static native void nativeStop();
+    private static native void nativeDestroyRaw();
 
-    public static native void nativePause();
+    private static native boolean nativeStartRaw(double bpm);
 
-    public static native boolean nativeResume();
+    private static native void nativeStopRaw();
 
-    /** Native state values: 0=Idle, 1=Running, 2=Paused. */
-    public static native int nativeGetState();
+    private static native void nativePauseRaw();
 
-    // ========== 运行时参数 ==========
+    private static native boolean nativeResumeRaw();
 
-    public static native void nativeSetBpm(double bpm);
+    private static native int nativeGetStateRaw();
 
-    public static native void nativeSetTickVolume(double vol);
+    private static native void nativeSetBpmRaw(double bpm);
 
-    /**
-     * 设置 chime 音量。
-     * PLANNED（整点报时）：当前 Java 层未接线，接口保留待启用。
-     */
-    public static native void nativeSetChimeVolume(double vol);
+    private static native void nativeSetTickVolumeRaw(double vol);
 
-    public static native void nativeSetAccent(boolean on);
+    private static native void nativeSetChimeVolumeRaw(double vol);
 
-    /** 设置输出总倍率（x1 = 1.0, x2 = 2.0, x3 = 3.0），叠加在 tick/chime gain 之上 */
-    public static native void nativeSetOutputGain(double gain);
+    private static native void nativeSetAccentRaw(boolean on);
 
-    // ========== 音色切换 ==========
+    private static native void nativeSetOutputGainRaw(double gain);
 
-    /**
-     * 运行时替换 tick 样本（从 Assets 加载强拍 + 弱拍 WAV）。
-     * tickLoPath 可为 null 或空串，则两路使用同一个强拍样本（单音色音色包）。
-     */
-    public static native boolean nativeLoadSoundPack(
+    private static native boolean nativeLoadSoundPackRaw(
             android.content.res.AssetManager mgr,
             String tickHiPath, String tickLoPath);
 
+    private static native void nativeTriggerChimeRaw();
+
+    private static native int nativeGetXRunCountRaw();
+
+    private static native long nativeGetBeatSeqRaw();
+
+    private static native void nativeSetMixWithOthersRaw(boolean mixWithOthers);
+
+    private static native boolean nativeRebuildStreamIfNeededRaw();
+
+    // ========== 安全包装（库缺失时降级） ==========
+
+    public static boolean nativeLoadWavAssets(
+            android.content.res.AssetManager mgr,
+            String tickHiPath, String tickLoPath, String chimePath) {
+        return libraryLoaded
+                && nativeLoadWavAssetsRaw(mgr, tickHiPath, tickLoPath, chimePath);
+    }
+
+    // ========== 引擎生命周期 ==========
+
+    public static synchronized boolean nativeStart(double bpm) {
+        if (!libraryLoaded) return false;
+        boolean ok = nativeStartRaw(bpm);
+        // nativeStart 自行开流，成功后必须同步 initialized，否则调用方会重复重载采样
+        if (ok) initialized = true;
+        return ok;
+    }
+
+    public static void nativeStop() {
+        if (libraryLoaded) nativeStopRaw();
+    }
+
+    public static void nativePause() {
+        if (libraryLoaded) nativePauseRaw();
+    }
+
+    public static boolean nativeResume() {
+        return libraryLoaded && nativeResumeRaw();
+    }
+
+    /** Native state values: 0=Idle, 1=Running, 2=Paused. */
+    public static int nativeGetState() {
+        return libraryLoaded ? nativeGetStateRaw() : 0;
+    }
+
+    // ========== 运行时参数 ==========
+
+    public static void nativeSetBpm(double bpm) {
+        if (libraryLoaded) nativeSetBpmRaw(bpm);
+    }
+
+    public static void nativeSetTickVolume(double vol) {
+        if (libraryLoaded) nativeSetTickVolumeRaw(vol);
+    }
+
+    /** PLANNED（整点报时）：Java 层未接线，接口保留待启用。 */
+    public static void nativeSetChimeVolume(double vol) {
+        if (libraryLoaded) nativeSetChimeVolumeRaw(vol);
+    }
+
+    public static void nativeSetAccent(boolean on) {
+        if (libraryLoaded) nativeSetAccentRaw(on);
+    }
+
+    /** 输出总倍率（x1/x2/x3），叠加在 tick/chime gain 之上 */
+    public static void nativeSetOutputGain(double gain) {
+        if (libraryLoaded) nativeSetOutputGainRaw(gain);
+    }
+
+    // ========== 音色切换 ==========
+
+    /** 运行时替换 tick 样本；tickLoPath 为 null/空串则两路复用强拍。 */
+    public static boolean nativeLoadSoundPack(
+            android.content.res.AssetManager mgr,
+            String tickHiPath, String tickLoPath) {
+        return libraryLoaded && nativeLoadSoundPackRaw(mgr, tickHiPath, tickLoPath);
+    }
+
     // ========== 事件触发 ==========
 
-    /**
-     * 触发一次整点 chime。
-     * PLANNED（整点报时）：当前 Java 层未接线，接口保留待启用。
-     */
-    public static native void nativeTriggerChime();
+    /** PLANNED（整点报时）：Java 层未接线，接口保留待启用。 */
+    public static void nativeTriggerChime() {
+        if (libraryLoaded) nativeTriggerChimeRaw();
+    }
 
     // ========== 监控 ==========
 
-    // 调试观测：XRun 由 1Hz 健康检查读取；beatSeq 供核对拍数。
+    /** XRun（丢帧）累计次数；未开流或库未加载返回 -1。 */
+    public static int nativeGetXRunCount() {
+        return libraryLoaded ? nativeGetXRunCountRaw() : -1;
+    }
 
-    /** XRun（丢帧）累计次数；未开流返回 -1。 */
-    public static native int nativeGetXRunCount();
+    public static long nativeGetBeatSeq() {
+        return libraryLoaded ? nativeGetBeatSeqRaw() : 0L;
+    }
 
-    /** 本次运行累计拍数。 */
-    public static native long nativeGetBeatSeq();
+    /** 开流前调用：true → 固定 SHARED 混音，false → EXCLUSIVE 优先、失败回退 SHARED。 */
+    public static void nativeSetMixWithOthers(boolean mixWithOthers) {
+        if (libraryLoaded) nativeSetMixWithOthersRaw(mixWithOthers);
+    }
 
-    /**
-     * 告知 native 侧「当前是否有其它音频在播放」：true → 固定以 SHARED 开流与系统混音共存，
-     * false → 维持 EXCLUSIVE 优先、失败回退 SHARED。需在开流前调用。
-     */
-    public static native void nativeSetMixWithOthers(boolean mixWithOthers);
-
-    /** 检查 AAudio 流是否因设备断开而死亡，如是则重建。由主线程定时调用。*/
-    public static native boolean nativeRebuildStreamIfNeeded();
+    /** 流因设备断开而死亡时重建；由主线程定时调用。 */
+    public static boolean nativeRebuildStreamIfNeeded() {
+        return libraryLoaded && nativeRebuildStreamIfNeededRaw();
+    }
 }
