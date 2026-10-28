@@ -535,6 +535,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 统一入口：夹取 → 量化到 0.1 → 同步引擎与 UI。 */
     private void applyBpm(double newBpm) {
+        if (isLocked) return;
         bpm = clampBpm(newBpm);
         AudioEngine.nativeSetBpm(bpm);
         updateBpmDisplay();

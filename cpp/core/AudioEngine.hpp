@@ -155,7 +155,7 @@ public:
     }
 
     /** 每拍回调（音频线程内同步调用，beatSeq 从 1 起）。注册信息用 seqlock 发布：
-     *  奇数→写字段→偶数，读侧校验前后序号一致，避免指针成对性被撕裂。 */
+     *  奇数→写字段→偶数，读侧校验前后序号一致，避免指针成对性被撕裂；写侧无互斥，调用方需保证单线程。 */
     using TickCallback = void (*)(void* userData, std::uint64_t beatSeq,
                                   std::uint64_t framePos, int sampleRate);
     void SetTickCallback(TickCallback cb, void* userData) noexcept {

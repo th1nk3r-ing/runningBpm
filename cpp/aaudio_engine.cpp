@@ -449,6 +449,10 @@ Java_com_runbeat_audio_AudioEngine_nativePauseRaw(JNIEnv * /*env*/, jclass /*cla
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeResumeRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     LOGI("nativeResume");
+    if (gEngine.GetState() == AudioEngine::State::Idle) {
+        LOGE("nativeResume: engine idle, ignored");
+        return JNI_FALSE;
+    }
     if (gStreamError.exchange(false, std::memory_order_acq_rel)) {
         CloseStream();
     }
