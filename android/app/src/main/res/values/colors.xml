@@ -8,4 +8,12 @@
     <color name="colorPrimary">#FF6B35</color>
     <color name="colorPrimaryVariant">#CC5520</color>
     <color name="colorOnPrimary">#FFFFFF</color>
+    <!-- 目标数字色由主题色派生；无色相时退回此中性灰 -->
+    <color name="targetValue">#8E8E93</color>
+    <color name="cadence_warn">#FFC107</color>
+    <color name="cadence_bad">#F44336</color>
+    <color name="ringTrack">#2A2A2A</color>
+    <color name="ringInactive">#4A4A4A</color>
+    <color name="sheetBackground">#1A1A1A</color>
+    <color name="cardBackground">#1E1E1E</color>
 </resources>

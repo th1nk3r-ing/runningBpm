@@ -65,4 +65,28 @@
         <item>边击</item>
         <item>强弱拍</item>
     </string-array>
+    <!-- 步频 -->
+    <string name="label_spm">SPM</string>
+    <string name="label_target_word">目标</string>
+    <string name="label_waiting">等待步伐</string>
+    <string name="label_paused_status">已暂停</string>
+    <string name="label_bpm_target">BPM · 目标</string>
+    <string name="label_target_fmt">目标 %1$s</string>
+    <string name="label_target_delta_fmt">目标 %1$s · Δ %2$s</string>
+    <string name="label_target_waiting_fmt">目标 %1$s · 等待步伐</string>
+    <string name="label_paused_fmt">已暂停 · 目标 %1$s</string>
+    <string name="msg_start_for_cadence">开始后显示实测步频</string>
+    <string name="msg_no_sensor">本机不支持步频检测</string>
+    <string name="label_steps_fmt">%1$s 步</string>
+    <string name="label_stats">统计 ›</string>
+    <string name="label_stats_title">本次跑步</string>
+    <string name="label_avg">平均</string>
+    <string name="label_max">最高</string>
+    <string name="label_accuracy">跟拍</string>
+    <string name="label_elapsed">时长</string>
+    <string name="label_trend_60s">步频趋势（近 60s）</string>
+    <string name="label_no_data">暂无数据</string>
+    <string name="label_current_delta_fmt">当前偏差 %1$s SPM</string>
+    <string name="desc_cadence">步频仪表</string>
+    <string name="desc_cadence_chart">近 60 秒步频趋势</string>
 </resources>

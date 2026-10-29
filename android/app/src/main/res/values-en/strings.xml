@@ -65,4 +65,28 @@
         <item>Rimshot</item>
         <item>Down/Upbeat</item>
     </string-array>
+    <!-- Cadence -->
+    <string name="label_spm">SPM</string>
+    <string name="label_target_word">Target</string>
+    <string name="label_waiting">Waiting</string>
+    <string name="label_paused_status">Paused</string>
+    <string name="label_bpm_target">BPM · TARGET</string>
+    <string name="label_target_fmt">Target %1$s</string>
+    <string name="label_target_delta_fmt">Target %1$s · Δ %2$s</string>
+    <string name="label_target_waiting_fmt">Target %1$s · waiting for steps</string>
+    <string name="label_paused_fmt">Paused · target %1$s</string>
+    <string name="msg_start_for_cadence">Start to see live cadence</string>
+    <string name="msg_no_sensor">Cadence not supported on this device</string>
+    <string name="label_steps_fmt">%1$s steps</string>
+    <string name="label_stats">Stats ›</string>
+    <string name="label_stats_title">This Run</string>
+    <string name="label_avg">Avg</string>
+    <string name="label_max">Max</string>
+    <string name="label_accuracy">On target</string>
+    <string name="label_elapsed">Time</string>
+    <string name="label_trend_60s">Cadence trend (60s)</string>
+    <string name="label_no_data">No data yet</string>
+    <string name="label_current_delta_fmt">Now %1$s SPM</string>
+    <string name="desc_cadence">Cadence gauge</string>
+    <string name="desc_cadence_chart">Cadence trend over the last 60 seconds</string>
 </resources>

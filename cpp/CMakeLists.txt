@@ -29,7 +29,7 @@ target_compile_features(runbeat_core INTERFACE cxx_std_17)
 
 if(ANDROID)
     # AAudio 驱动 + JNI 桥接
-    add_library(runbeat SHARED aaudio_engine.cpp)
+    add_library(runbeat SHARED aaudio_engine.cpp cadence_jni.cpp)
     target_link_libraries(runbeat
         PRIVATE
         runbeat_core
@@ -58,6 +58,7 @@ else()
             engine_test
             wav_loader_test
             log_test
+            cadence_detector_test
         )
         foreach(test_name IN LISTS RUNBEAT_TESTS)
             add_executable(${test_name} test/${test_name}.cpp)

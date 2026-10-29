@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.util.TypedValue;
 import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -38,6 +39,7 @@ import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.runbeat.audio.AudioEngine;
+import com.runbeat.audio.CadenceNative;
 import com.runbeat.audio.Logx;
 
 import android.content.res.ColorStateList;
@@ -69,8 +71,12 @@ public class MainActivity extends AppCompatActivity {
     private Button btnLock;
     private ProgressBar unlockProgress;
     private TextView tvTimer;
-    private TextView tvBpm;
-    private TextView tvBpmLabel;
+    private TextView tvPrimaryValue;
+    private TextView tvLabelPrimary;
+    private View layoutTargetRow;
+    private TextView tvTargetValue;
+    private TextView tvCadenceStatus;
+    private View layoutCadenceTap;
     private Button btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5;
     private Button btnStartPause;
     private SeekBar seekTickVolume;
@@ -87,9 +93,13 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvTimbreArrow;
     private View layoutBpmControls;
     private TextView tvBuildInfo;
+    private CadenceRingView cadenceRing;
+    private TextView tvSteps;
+    private TextView btnStats;
 
     // ===== 状态 =====
     private static final String TAG_UI = "RunBeat-UI";
+    private static final String TAG_CADENCE = "RunBeat-Cadence";
     /** BPM 产品区间（120–220，支持 0.1 精度）。 */
     private static final double MIN_BPM = 120.0;
     private static final double MAX_BPM = 220.0;
@@ -111,6 +121,10 @@ public class MainActivity extends AppCompatActivity {
     private double bpmHoldStart;
     /** 拖动前的音量；只在值真的变了时才记一条。 */
     private int volumeAtTouchStart;
+    private boolean cadenceSupported;
+    private double lastCadenceSpm;
+    private long lastBpmAnimMs;
+    private int targetValueColor = 0xFF8E8E93;
 
     // ===== 主题色系 =====
     private static final int[] ACCENT_COLORS = {
@@ -130,6 +144,7 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
+            updateCadenceUi();
             Logx.i("RunBeat-Stats", "elapsed=" + elapsedSeconds
                     + " beats=" + AudioEngine.nativeGetBeatSeq()
                     + " wallMs=" + SystemClock.elapsedRealtime());
@@ -186,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
         switchLogToFile.setChecked(prefsManager.getLogToFile());
         updateLogStateText(switchLogToFile.isChecked());
         setupListeners();
+        cadenceSupported = new CadenceSensor(this).isSupported();
 
         // 权限拒绝只影响来电自动暂停，不影响节拍器
         phonePermissionLauncher = registerForActivityResult(
@@ -235,6 +251,7 @@ public class MainActivity extends AppCompatActivity {
 
         AudioEngine.nativeSetBpm(bpm);
         AudioEngine.nativeSetTickVolume(tickVolumePercent / 100.0f);
+        CadenceNative.setTarget(bpm);
 
         timbreIndex = prefsManager.getTimbre();
         if (timbreIndex >= 0 && timbreIndex < AudioEngineRestorer.SOUND_PACKS.length) {
@@ -329,8 +346,12 @@ public class MainActivity extends AppCompatActivity {
         btnLock = findViewById(R.id.btnLock);
         unlockProgress = findViewById(R.id.unlockProgress);
         tvTimer = findViewById(R.id.tvTimer);
-        tvBpm = findViewById(R.id.tvBpm);
-        tvBpmLabel = findViewById(R.id.tvBpmLabel);
+        tvPrimaryValue = findViewById(R.id.tvPrimaryValue);
+        tvLabelPrimary = findViewById(R.id.tvLabelPrimary);
+        layoutTargetRow = findViewById(R.id.layoutTargetRow);
+        tvTargetValue = findViewById(R.id.tvTargetValue);
+        tvCadenceStatus = findViewById(R.id.tvCadenceStatus);
+        layoutCadenceTap = findViewById(R.id.layoutCadenceTap);
         btnBpmMinus5 = findViewById(R.id.btnBpmMinus5);
         btnBpmMinus1 = findViewById(R.id.btnBpmMinus1);
         btnBpmPlus1 = findViewById(R.id.btnBpmPlus1);
@@ -349,6 +370,9 @@ public class MainActivity extends AppCompatActivity {
         tvTimbreArrow = findViewById(R.id.tvTimbreArrow);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
         tvBuildInfo = findViewById(R.id.tvBuildInfo);
+        cadenceRing = findViewById(R.id.cadenceRing);
+        tvSteps = findViewById(R.id.tvSteps);
+        btnStats = findViewById(R.id.btnStats);
     }
 
     // ===== 事件注册 =====
@@ -371,9 +395,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // 点击大号 BPM 数字：0.1 精度精确调整（按钮只做整数步进）。
-        tvBpm.setOnClickListener(v -> {
-            if (isLocked) return;
-            showBpmDialog();
+        layoutCadenceTap.setOnClickListener(v -> {
+            if (!isLocked) showBpmDialog();
         });
 
         seekTickVolume.setProgress(tickVolumePercent);
@@ -442,6 +465,11 @@ public class MainActivity extends AppCompatActivity {
                     return true;
             }
             return false;
+        });
+
+        btnStats.setOnClickListener(v -> {
+            Logx.i(TAG_UI, "stats");
+            CadenceStatsDialog.show(this, ACCENT_COLORS[accentColorIndex]);
         });
 
         btnRestart.setOnClickListener(v -> restartMetronome());
@@ -620,7 +648,9 @@ public class MainActivity extends AppCompatActivity {
         if (isLocked) return;
         bpm = clampBpm(newBpm);
         AudioEngine.nativeSetBpm(bpm);
+        CadenceNative.setTarget(bpm);
         updateBpmDisplay();
+        updateCadenceUi();
         animateBpmChange();
         // 长按连发期间不逐次打点，停手时由 stopBpmRepeat 记一条
         if (bpmHoldRunnable == null) Logx.i(TAG_UI, "bpm=" + bpmText());
@@ -757,12 +787,16 @@ public class MainActivity extends AppCompatActivity {
     // ===== BPM 数字缩放动画 =====
 
     private void animateBpmChange() {
-        ValueAnimator anim = ValueAnimator.ofFloat(1.0f, 1.25f, 1.0f);
-        anim.setDuration(200);
+        final long now = SystemClock.elapsedRealtime();
+        if (now - lastBpmAnimMs < 200) return;
+        lastBpmAnimMs = now;
+        final View target = isRunning ? tvTargetValue : tvPrimaryValue;
+        ValueAnimator anim = ValueAnimator.ofFloat(1.0f, 1.10f, 1.0f);
+        anim.setDuration(180);
         anim.addUpdateListener(a -> {
             float v = (float) a.getAnimatedValue();
-            tvBpm.setScaleX(v);
-            tvBpm.setScaleY(v);
+            target.setScaleX(v);
+            target.setScaleY(v);
         });
         anim.start();
     }
@@ -781,6 +815,7 @@ public class MainActivity extends AppCompatActivity {
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
+            resetCadenceStats();
             timerHandler.removeCallbacks(timerRunnable);
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
@@ -826,6 +861,7 @@ public class MainActivity extends AppCompatActivity {
         isRunning = false;
         isPaused = false;
         elapsedSeconds = 0;
+        resetCadenceStats();
         timerHandler.removeCallbacks(timerRunnable);
         cancelAutoLock();
         cancelUnlockProgress();
@@ -864,6 +900,7 @@ public class MainActivity extends AppCompatActivity {
         elapsedSeconds = 0;
         isRunning = true;
         isPaused = false;
+        resetCadenceStats();
         timerHandler.removeCallbacks(timerRunnable);
         timerHandler.postDelayed(timerRunnable, 1000);
         updateUI();
@@ -966,6 +1003,7 @@ public class MainActivity extends AppCompatActivity {
         updateTimerDisplay();
         updateStatusDisplay();
         updateLockState();
+        updateCadenceUi();
         if (isRunning && !isPaused) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } else {
@@ -973,8 +1011,125 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void resetCadenceStats() {
+        final double[] s = CadenceNative.snapshot();
+        if (s[CadenceNative.STEPS] > 0) {
+            Logx.i(TAG_CADENCE, String.format(Locale.US,
+                    "session avg=%.1f max=%.1f acc=%.2f steps=%d sec=%.0f",
+                    s[CadenceNative.AVG], s[CadenceNative.MAX], s[CadenceNative.ACCURACY],
+                    (long) s[CadenceNative.STEPS], s[CadenceNative.ACTIVE_SEC]));
+        }
+        CadenceNative.reset();
+        lastCadenceSpm = 0.0;
+        updateCadenceUi();
+    }
+
+    /** 环形仪表与步数；由 1s 计时器与状态变化驱动。 */
+    private void updateCadenceUi() {
+        if (cadenceRing == null || tvPrimaryValue == null) return;
+
+        final double[] snapshot = CadenceNative.snapshot();
+        final double cadence = snapshot[CadenceNative.CADENCE];
+        final boolean tracking = snapshot[CadenceNative.TRACKING] != 0;
+        if (tracking && cadence > 0) lastCadenceSpm = cadence;
+
+        CadenceRingView.Mode mode;
+        if (!isRunning) {
+            mode = CadenceRingView.Mode.IDLE;
+        } else if (!cadenceSupported) {
+            mode = CadenceRingView.Mode.WAITING;
+        } else if (isPaused) {
+            mode = CadenceRingView.Mode.PAUSED;
+        } else if (tracking) {
+            mode = CadenceRingView.Mode.TRACKING;
+        } else {
+            mode = CadenceRingView.Mode.WAITING;
+        }
+
+        final int accent = ACCENT_COLORS[accentColorIndex];
+        final int secondary = ContextCompat.getColor(this, R.color.textSecondary);
+        final String targetText = String.format(Locale.US, "%.1f", bpm);
+        final boolean idle = mode == CadenceRingView.Mode.IDLE;
+        final boolean paused = mode == CadenceRingView.Mode.PAUSED;
+
+        layoutTargetRow.setVisibility(idle ? View.GONE : View.VISIBLE);
+        tvLabelPrimary.setText(idle ? R.string.label_bpm : R.string.label_spm);
+        tvTargetValue.setText(targetText);
+
+        if (idle) {
+            tvPrimaryValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, isWholeBpm() ? 62f : 40f);
+            tvPrimaryValue.setText(idleBpmText());
+            tvPrimaryValue.setTextColor(accent);
+            tvCadenceStatus.setText(R.string.msg_start_for_cadence);
+            tvCadenceStatus.setTextColor(secondary);
+        } else {
+            final String valueText;
+            if (mode == CadenceRingView.Mode.TRACKING) {
+                valueText = String.valueOf(Math.round(cadence));
+            } else if (paused && lastCadenceSpm > 0) {
+                valueText = String.valueOf(Math.round(lastCadenceSpm));
+            } else {
+                valueText = "–";
+            }
+            final boolean hasValue = !"–".equals(valueText);
+            tvPrimaryValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, hasValue ? 62f : 40f);
+            tvPrimaryValue.setText(valueText);
+            tvPrimaryValue.setTextColor(!hasValue || paused ? secondary : accent);
+            tvTargetValue.setTextColor(paused ? secondary : targetValueColor);
+
+            if (mode == CadenceRingView.Mode.TRACKING) {
+                final long delta = Math.round(cadence - bpm);
+                tvCadenceStatus.setText(String.format(Locale.US, "Δ %+d", delta));
+                tvCadenceStatus.setTextColor(deltaColor(delta));
+            } else if (paused) {
+                tvCadenceStatus.setText(R.string.label_paused_status);
+                tvCadenceStatus.setTextColor(secondary);
+            } else if (!cadenceSupported) {
+                tvCadenceStatus.setText(R.string.msg_no_sensor);
+                tvCadenceStatus.setTextColor(secondary);
+            } else {
+                tvCadenceStatus.setText(R.string.label_waiting);
+                tvCadenceStatus.setTextColor(secondary);
+            }
+        }
+
+        final float shownCadence = mode == CadenceRingView.Mode.TRACKING
+                ? (float) cadence
+                : mode == CadenceRingView.Mode.PAUSED ? (float) lastCadenceSpm : 0f;
+        cadenceRing.setData(mode, shownCadence, (float) bpm);
+
+        tvSteps.setText(getString(R.string.label_steps_fmt,
+                String.format(Locale.getDefault(), "%,d", (long) snapshot[CadenceNative.STEPS])));
+    }
+
+    private String signedDelta(double delta) {
+        return String.format(Locale.US, "%+d", Math.round(delta));
+    }
+
+    private int deltaColor(double delta) {
+        final double abs = Math.abs(delta);
+        if (abs <= 3.0) return ACCENT_COLORS[accentColorIndex];
+        if (abs <= 6.0) return ContextCompat.getColor(this, R.color.cadence_warn);
+        return ContextCompat.getColor(this, R.color.cadence_bad);
+    }
+
     private void updateBpmDisplay() {
-        tvBpm.setText(bpmText());
+        tvTargetValue.setText(bpmText());
+        if (!isRunning) {
+            tvPrimaryValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, isWholeBpm() ? 62f : 40f);
+            tvPrimaryValue.setText(idleBpmText());
+        }
+    }
+
+    private boolean isWholeBpm() {
+        return Math.abs(bpm - Math.round(bpm)) < 0.05;
+    }
+
+    /** 环心停止态：整数步频用 62sp，带小数时收一档避免顶到数值列边缘。 */
+    private String idleBpmText() {
+        return isWholeBpm()
+                ? String.valueOf(Math.round(bpm))
+                : String.format(Locale.US, "%.1f", bpm);
     }
 
     private void updateTimerDisplay() {
@@ -1087,11 +1242,31 @@ public class MainActivity extends AppCompatActivity {
                         0xFF3A3A3A
                 }));
         updateLogStateText(switchLogToFile.isChecked());
-        tvBpm.setTextColor(color);
-        tvBpmLabel.setTextColor(color);
+        targetValueColor = deriveTargetColor(color);
+        if (isRunning && isPaused) {
+            final int secondary = ContextCompat.getColor(this, R.color.textSecondary);
+            tvPrimaryValue.setTextColor(secondary);
+            tvTargetValue.setTextColor(secondary);
+        } else {
+            tvPrimaryValue.setTextColor(color);
+            tvTargetValue.setTextColor(targetValueColor);
+        }
+        btnStats.setTextColor(color);
+        cadenceRing.setAccent(color);
+        cadenceRing.setTargetColor(targetValueColor);
         btnRestart.setBackground(makeBpmRippleBg(color));
         btnRestart.setTextColor(color);
         if (!restoringUi) Logx.i(TAG_UI, "theme=" + accentColorIndex + " " + tvThemeName.getText());
+    }
+
+    /** 目标数字色：沿用主题色相、压饱和，与实测步频区分又保持同族。 */
+    private static int deriveTargetColor(int accent) {
+        final float[] hsv = new float[3];
+        Color.colorToHSV(accent, hsv);
+        if (hsv[1] < 0.15f) return 0xFF8E8E93;
+        hsv[1] *= 0.62f;
+        hsv[2] = Math.min(1f, hsv[2] * 0.96f);
+        return Color.HSVToColor(hsv);
     }
 
     private android.graphics.drawable.Drawable makeBpmRippleBg(int accent) {
@@ -1157,7 +1332,8 @@ public class MainActivity extends AppCompatActivity {
             btn.setEnabled(enabled);
             btn.setBackground(makeBpmRippleBg(accent));
         }
-        tvBpm.setEnabled(enabled);
+        layoutCadenceTap.setEnabled(enabled);
+        layoutCadenceTap.setAlpha(enabled ? 1.0f : 0.6f);
         seekTickVolume.setEnabled(enabled);
         seekTickVolume.setAlpha(enabled ? 1.0f : 0.6f);
         btnGain.setEnabled(enabled);

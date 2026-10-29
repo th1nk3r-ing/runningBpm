@@ -118,6 +118,7 @@ public class MetronomeService extends Service {
     private SharedPreferences runtimePrefs;
     private PreferencesManager preferences;
     private CallStateMonitor callStateMonitor;
+    private CadenceSensor cadenceSensor;
 
     // ===== 耳机拔出监听 =====
     // 不申请音频焦点：节拍器要与音乐/播客共存；中断由 BECOMING_NOISY + 通话监听覆盖
@@ -163,6 +164,7 @@ public class MetronomeService extends Service {
         currentPaused = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED, false);
         pausedByCall = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED_BY_CALL, false);
         preferences = new PreferencesManager(this);
+        cadenceSensor = new CadenceSensor(this);
         Logx.init(this, preferences.getLogToFile());
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
@@ -219,6 +221,7 @@ public class MetronomeService extends Service {
             callStateMonitor.stop();
             callStateMonitor = null;
         }
+        if (cadenceSensor != null) cadenceSensor.stop();
         streamHealthHandler.removeCallbacks(streamHealthRunnable);
         unregisterNoisyReceiver();
         releaseWakeLock();
@@ -249,6 +252,7 @@ public class MetronomeService extends Service {
         streamHealthHandler.removeCallbacks(streamHealthRunnable);
         unregisterNoisyReceiver();
         releaseWakeLock();
+        if (cadenceSensor != null) cadenceSensor.stop();
         notifyPlaybackStateChanged();
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
@@ -445,8 +449,10 @@ public class MetronomeService extends Service {
         syncWakeLock();
         if (currentRunning && !currentPaused) {
             registerNoisyReceiver();
+            if (cadenceSensor != null) cadenceSensor.start();
         } else {
             unregisterNoisyReceiver();
+            if (cadenceSensor != null) cadenceSensor.stop();
         }
     }
 

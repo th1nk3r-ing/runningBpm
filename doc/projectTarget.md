@@ -193,9 +193,10 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
 #### 11.2 级别与 tag
 
 * 级别：`trace/debug/info/warn/error/critical`，全局默认 `trace`，release 同样保留。门面入口：C++ 直连 `->trace/debug/info/warn/error/critical`；Android 为 `Logx.t/d/i/w/e`（`critical` 只有常量与 native 通道，无封装方法）；iOS 为 `logDebug/logInfo/logWarn/logError`。
-* 级别口径：`error` 给「功能不可用」（样本加载失败、流 / AudioUnit 创建失败）；`warn` 给「降级但仍可用」（流断开待重建、EXCLUSIVE 回落 SHARED、会话被重置、启动/恢复失败后可重试）；`info` 给状态迁移与周期性观测（`RunBeat-Stats`、`RunBeat-XRun`）；`trace` 给高频数值（每拍、`nativeSetBpm`）；`debug` 目前未使用，留作后续细分。
-* tag 沿用原 logcat 标签：`RunBeat-Native`、`RunBeat-Beat`、`RunBeat-Stats`、`RunBeat-XRun`、`RunBeat-Service`、`AudioEngineBridge`、`AudioUnit`、`AudioSession`、`RemoteCommand`。
-* `AudioEngine` 不是门面 tag：它只用于 `AudioEngine.java` 里 `librunbeat.so` 加载失败时的 `android.util.Log` 兜底。
+* 级别口径：`error` 给「功能不可用」（样本加载失败、流 / AudioUnit 创建失败）；`warn` 给「降级但仍可用」（流断开待重建、EXCLUSIVE 回落 SHARED、会话被重置、启动/恢复失败后可重试）；`info` 给状态迁移与周期性观测（`RunBeat-Stats`、`RunBeat-XRun`、步频跟踪边界与会话小结）；`trace` 给高频数值（每拍、`nativeSetBpm`）；`debug` 给 1 Hz 级的采样行（步频汇总）。
+* tag 沿用原 logcat 标签：`RunBeat-Native`、`RunBeat-Beat`、`RunBeat-Stats`、`RunBeat-XRun`、`RunBeat-Service`、`RunBeat-Cadence`、`AudioEngineBridge`、`AudioUnit`、`AudioSession`、`RemoteCommand`。
+* `AudioEngine`、`CadenceNative` 不是门面 tag：只用于 `librunbeat.so` 加载失败时的 `android.util.Log` 兜底。
+* 步频链路走 `RunBeat-Cadence`：`info` 记传感器起停、采样率校准、`tracking acquired/lost`、会话小结；`warn` 记实测采样率偏离请求值 20% 以上触发的带通重算；`error` 记传感器缺失或注册失败；`debug` 记 1 Hz 汇总行（跟踪中 1 s、空闲 5 s，带 `cadence/avg/max/acc/steps/env/tracking` 与实际采样率）。会话小结在 START / RESTART / 完全停止时各一条，只有步数大于 0 才写。
 * 用户操作统一走 `RunBeat-UI`：一次操作一条 `info`（`start/pause/resume/restart`、Android 额外的 `stop`、`bpm`、`volume`、`gain`、`accent`、`timbre`、`theme`、`language`、`lock`/`unlock`/`auto-lock`、`file log on/off`、权限结果），设置类用「值 + 名称」，失败分支走 `warn`。连续输入（BPM 长按、音量滑块）只在停手且值真的变化时记一条，不逐帧打点。
 
 #### 11.3 sink
