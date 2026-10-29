@@ -13,7 +13,7 @@ struct TimerView: View {
             // 计时器
             Text(state.timerDisplay)
                 .font(.system(size: 22, design: .monospaced))
-                .foregroundColor(.textSecondary)
+                .foregroundColor(.textTimer)
                 .frame(maxWidth: .infinity)
 
             // 重置按钮
@@ -32,6 +32,8 @@ struct TimerView: View {
                                 .background(Color.controlBg.cornerRadius(8))
                         )
                 }
+                .disabled(state.isLocked)
+                .opacity(state.isLocked ? 0.6 : 1.0)
             } else {
                 Spacer()
                     .frame(width: 44)

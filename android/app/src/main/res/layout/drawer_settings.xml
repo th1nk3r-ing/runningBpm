@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1A1A1A"
+    android:paddingHorizontal="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/settings_title"
+            android:textColor="@color/textPrimary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnCloseSettings"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="✕"
+            android:textColor="@color/textSecondary"
+            android:textSize="18sp"
+            android:contentDescription="@string/btn_close"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_section_general"
+                android:textColor="@color/textSecondary"
+                android:textSize="12sp"
+                android:letterSpacing="0.1"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/drawerLang"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_selector_row"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="12dp"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_language"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="14sp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tvLangValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/drawerTheme"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_selector_row"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="12dp"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/dialog_theme_title"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="14sp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <View
+                    android:id="@+id/btnThemeColor"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="6dp" />
+
+                <TextView
+                    android:id="@+id/tvThemeName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvThemeArrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="  ▾"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_section_sound"
+                android:textColor="@color/textSecondary"
+                android:textSize="12sp"
+                android:letterSpacing="0.1"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/drawerTimbre"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_selector_row"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="12dp"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_timbre"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="14sp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tvTimbreName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvTimbreArrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="  ▾"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/drawerAccent"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_selector_row"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="12dp"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_accent"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="14sp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tvAccentName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvAccentArrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="  ▾"
+                    android:textColor="@color/accent"
+                    android:textSize="14sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_section_advanced"
+                android:textColor="@color/textSecondary"
+                android:textSize="12sp"
+                android:letterSpacing="0.1"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/drawerLogToFile"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_selector_row"
+                android:clickable="true"
+                android:focusable="true"
+                android:importantForAccessibility="no"
+                android:paddingHorizontal="12dp"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_log_to_file"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="14sp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tvLogState"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/log_on"
+                    android:textColor="@color/accent"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:importantForAccessibility="no"
+                    android:layout_marginEnd="8dp" />
+
+                <Switch
+                    android:id="@+id/switchLogToFile"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:contentDescription="@string/label_log_to_file"
+                    android:showText="false" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvBuildInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="v1.0"
+                android:textColor="@color/textSecondary"
+                android:textSize="11sp"
+                android:gravity="center"
+                android:paddingTop="24dp" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

@@ -16,5 +16,12 @@
 "dialog_timbre_title" = "Select Timbre";
 "dialog_accent_title" = "Select Accent";
 "btn_cancel" = "Cancel";
-"lang_toggle" = "中文";
+"settings_title" = "Settings";
+"settings_section_general" = "General";
+"settings_section_sound" = "Sound";
+"settings_section_advanced" = "Advanced";
+"label_language" = "Language";
+"log_on" = "ON";
+"log_off" = "OFF";
+"desc_settings" = "Open settings";
 "app_name" = "RunBeat Pro";

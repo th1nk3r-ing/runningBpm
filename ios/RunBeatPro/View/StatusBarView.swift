@@ -1,59 +1,37 @@
 import SwiftUI
 
-/// 状态栏：语言切换 + 主题色选择 + 运行状态 + 锁定按钮
+/// 状态栏
 struct StatusBarView: View {
     @Environment(AppState.self) private var state
-    @State private var showThemeSheet = false
+    let onOpenSettings: () -> Void
     @State private var unlockProgress: CGFloat = 0.0
     @State private var isUnlocking = false
 
-    private let unlockDuration: TimeInterval = 2.0
+    private let unlockDuration: TimeInterval = 1.2
 
     var body: some View {
         HStack(spacing: 0) {
-            // 语言切换
             Button {
-                toggleLanguage()
+                onOpenSettings()
             } label: {
-                Text(state.currentLanguage == "zh" ? "EN" : "中文")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.textSecondary)
-                    .padding(8)
+                Image(systemName: "gearshape")
+                    .font(.system(size: 20))
+                    .foregroundColor(state.accentColor)
+                    .frame(width: 44, height: 44)
             }
+            .accessibilityLabel(localized("desc_settings"))
             .padding(.trailing, 8)
 
-            // 主题色选择
-            Button {
-                showThemeSheet = true
-            } label: {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(state.accentColor)
-                        .frame(width: 20, height: 20)
-                    Text(state.accentColorName)
-                        .font(.system(size: 12))
-                        .foregroundColor(state.accentColor)
-                }
-                .padding(4)
-            }
-            .padding(.trailing, 12)
-            .sheet(isPresented: $showThemeSheet) {
-                ThemePickerSheet()
-            }
-
-            // 状态圆点
             Circle()
                 .fill(state.isRunningNotPaused ? Color.green : Color.gray)
                 .frame(width: 10, height: 10)
                 .padding(.trailing, 8)
 
-            // 状态文字
             Text(statusText)
                 .font(.system(size: 15, weight: .regular))
                 .foregroundColor(.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 锁定按钮
             lockButton
         }
     }
@@ -112,7 +90,7 @@ struct StatusBarView: View {
         )
     }
 
-    // MARK: - Unlock Logic（长按 2s 解锁）
+    // MARK: - Unlock Logic
 
     private func startUnlock() {
         guard !isUnlocking else { return }
@@ -123,7 +101,6 @@ struct StatusBarView: View {
             unlockProgress = 1.0
         }
 
-        // 2s 后解锁
         DispatchQueue.main.asyncAfter(deadline: .now() + unlockDuration) { [weak state = state] in
             guard let state = state, self.isUnlocking else { return }
             state.isLocked = false
@@ -141,14 +118,6 @@ struct StatusBarView: View {
     private func cancelUnlock() {
         isUnlocking = false
         unlockProgress = 0.0
-    }
-
-    // MARK: - Language
-
-    private func toggleLanguage() {
-        state.currentLanguage = state.currentLanguage == "zh" ? "en" : "zh"
-        // 更新 UserDefaults
-        UserDefaults.standard.setValue(state.currentLanguage, forKey: "language")
     }
 
     // MARK: - Localization Helper

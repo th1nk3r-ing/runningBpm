@@ -16,7 +16,7 @@ struct BPMControlsView: View {
             bpmButton(delta: +5)
         }
         .disabled(state.isLocked)
-        .opacity(state.isLocked ? 0.4 : 1.0)
+        .opacity(state.isLocked ? 0.6 : 1.0)
     }
 
     @ViewBuilder

@@ -16,4 +16,11 @@
 "dialog_timbre_title" = "选择音色";
 "dialog_accent_title" = "选择重音";
 "btn_cancel" = "取消";
-"lang_toggle" = "EN";
+"settings_title" = "设置";
+"settings_section_general" = "通用";
+"settings_section_sound" = "声音";
+"settings_section_advanced" = "高级";
+"label_language" = "语言";
+"log_on" = "开";
+"log_off" = "关";
+"desc_settings" = "打开设置";

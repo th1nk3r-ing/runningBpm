@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.LinearInterpolator;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
@@ -33,6 +34,8 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.runbeat.audio.AudioEngine;
 import com.runbeat.audio.Logx;
@@ -51,10 +54,15 @@ import android.content.res.Resources;
 public class MainActivity extends AppCompatActivity {
 
     // ===== 控件 =====
-    private TextView btnLangToggle;
-    private View layoutTheme;
+    private DrawerLayout drawerLayout;
+    private ImageButton btnSettings;
+    private TextView btnCloseSettings;
+    private View drawerLang;
+    private TextView tvLangValue;
+    private View drawerTheme;
     private View btnThemeColor;
     private TextView tvThemeName;
+    private TextView tvThemeArrow;
     private View viewStatusDot;
     private TextView tvStatus;
     private TextView btnRestart;
@@ -67,13 +75,14 @@ public class MainActivity extends AppCompatActivity {
     private Button btnStartPause;
     private SeekBar seekTickVolume;
     private TextView btnGain;
-    private View layoutAccent;
+    private View drawerAccent;
     private TextView tvAccentName;
     private TextView tvAccentArrow;
     private int accentMode = 0;
-    private View layoutTimbre;
-    private View layoutLogToFile;
+    private View drawerTimbre;
+    private View drawerLogToFile;
     private Switch switchLogToFile;
+    private TextView tvLogState;
     private TextView tvTimbreName;
     private TextView tvTimbreArrow;
     private View layoutBpmControls;
@@ -166,7 +175,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         bindViews();
+        updateLanguageRow();
         switchLogToFile.setChecked(prefsManager.getLogToFile());
+        updateLogStateText(switchLogToFile.isChecked());
         setupListeners();
 
         // 权限拒绝只影响来电自动暂停，不影响节拍器
@@ -292,10 +303,15 @@ public class MainActivity extends AppCompatActivity {
     // ===== 视图绑定 =====
 
     private void bindViews() {
-        btnLangToggle = findViewById(R.id.btnLangToggle);
-        layoutTheme = findViewById(R.id.layoutTheme);
+        drawerLayout = findViewById(R.id.drawerLayout);
+        btnSettings = findViewById(R.id.btnSettings);
+        btnCloseSettings = findViewById(R.id.btnCloseSettings);
+        drawerLang = findViewById(R.id.drawerLang);
+        tvLangValue = findViewById(R.id.tvLangValue);
+        drawerTheme = findViewById(R.id.drawerTheme);
         btnThemeColor = findViewById(R.id.btnThemeColor);
         tvThemeName = findViewById(R.id.tvThemeName);
+        tvThemeArrow = findViewById(R.id.tvThemeArrow);
         viewStatusDot = findViewById(R.id.viewStatusDot);
         tvStatus = findViewById(R.id.tvStatus);
         btnRestart = findViewById(R.id.btnRestart);
@@ -311,12 +327,13 @@ public class MainActivity extends AppCompatActivity {
         btnStartPause = findViewById(R.id.btnStartPause);
         seekTickVolume = findViewById(R.id.seekTickVolume);
         btnGain = findViewById(R.id.btnGain);
-        layoutAccent = findViewById(R.id.layoutAccent);
+        drawerAccent = findViewById(R.id.drawerAccent);
         tvAccentName = findViewById(R.id.tvAccentName);
         tvAccentArrow = findViewById(R.id.tvAccentArrow);
-        layoutTimbre = findViewById(R.id.layoutTimbre);
-        layoutLogToFile = findViewById(R.id.layoutLogToFile);
+        drawerTimbre = findViewById(R.id.drawerTimbre);
+        drawerLogToFile = findViewById(R.id.drawerLogToFile);
         switchLogToFile = findViewById(R.id.switchLogToFile);
+        tvLogState = findViewById(R.id.tvLogState);
         tvTimbreName = findViewById(R.id.tvTimbreName);
         tvTimbreArrow = findViewById(R.id.tvTimbreArrow);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
@@ -364,7 +381,11 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
-        layoutAccent.setOnClickListener(v -> showAccentDialog());
+        btnSettings.setOnClickListener(v -> openSettings());
+        btnCloseSettings.setOnClickListener(v -> closeSettings());
+        drawerLang.setOnClickListener(v -> toggleLanguage());
+        drawerTheme.setOnClickListener(v -> showThemeDialog());
+        drawerAccent.setOnClickListener(v -> showAccentDialog());
 
         btnGain.setOnClickListener(v -> {
             gainLevel = gainLevel % 3 + 1; // 1 → 2 → 3 → 1
@@ -372,15 +393,14 @@ public class MainActivity extends AppCompatActivity {
             prefsManager.setGainLevel(gainLevel);
         });
 
-        layoutTimbre.setOnClickListener(v -> showTimbreDialog());
+        drawerTimbre.setOnClickListener(v -> showTimbreDialog());
 
         switchLogToFile.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefsManager.setLogToFile(isChecked);
             Logx.setFileEnabled(isChecked);
+            updateLogStateText(isChecked);
         });
-        layoutLogToFile.setOnClickListener(v -> switchLogToFile.toggle());
-        layoutTheme.setOnClickListener(v -> showThemeDialog());
-        btnLangToggle.setOnClickListener(v -> toggleLanguage());
+        drawerLogToFile.setOnClickListener(v -> switchLogToFile.toggle());
 
         btnLock.setOnClickListener(v -> {
             if (!isLocked) {
@@ -406,6 +426,28 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnRestart.setOnClickListener(v -> restartMetronome());
+    }
+
+    // ===== 设置抽屉 =====
+
+    private void openSettings() {
+        drawerLayout.openDrawer(GravityCompat.START);
+    }
+
+    private void closeSettings() {
+        drawerLayout.closeDrawer(GravityCompat.START);
+    }
+
+    private void updateLanguageRow() {
+        boolean isZh = prefsManager.getLanguage().equals("zh");
+        tvLangValue.setText(isZh ? "中文" : "English");
+    }
+
+    private void updateLogStateText(boolean enabled) {
+        tvLogState.setText(enabled ? R.string.log_on : R.string.log_off);
+        tvLogState.setTextColor(enabled
+                ? ACCENT_COLORS[accentColorIndex]
+                : ContextCompat.getColor(this, R.color.textSecondary));
     }
 
     // ===== 输出倍率 =====
@@ -484,7 +526,7 @@ public class MainActivity extends AppCompatActivity {
         cancelUnlockProgress();
         unlockProgress.setProgress(0);
         unlockAnimator = ObjectAnimator.ofInt(unlockProgress, "progress", 0, 2000);
-        unlockAnimator.setDuration(2000);
+        unlockAnimator.setDuration(1200);
         unlockAnimator.setInterpolator(new LinearInterpolator());
         unlockAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -753,6 +795,10 @@ public class MainActivity extends AppCompatActivity {
     /** Back = 显式停止，后台保活靠 Home 键；否则 KEY_RUNNING 残留会让下次冷启动自动出声。 */
     @Override
     public void onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            closeSettings();
+            return;
+        }
         if (isRunning) {
             stopPlayback();
         }
@@ -977,14 +1023,26 @@ public class MainActivity extends AppCompatActivity {
         unlockProgress.setProgressTintList(csl);
         tvAccentName.setTextColor(color);
         tvAccentArrow.setTextColor(color);
-        layoutAccent.setBackground(makeTimbreRowBg(color));
+        tvThemeArrow.setTextColor(color);
+        tvLangValue.setTextColor(color);
+        drawerLang.setBackground(makeTimbreRowBg(color));
+        drawerTheme.setBackground(makeTimbreRowBg(color));
+        drawerAccent.setBackground(makeTimbreRowBg(color));
         tvTimbreName.setTextColor(color);
         tvTimbreArrow.setTextColor(color);
-        layoutTimbre.setBackground(makeTimbreRowBg(color));
-        layoutLogToFile.setBackground(makeTimbreRowBg(color));
-        switchLogToFile.setThumbTintList(csl);
-        switchLogToFile.setTrackTintList(ColorStateList.valueOf(
-                Color.argb(128, Color.red(color), Color.green(color), Color.blue(color))));
+        drawerTimbre.setBackground(makeTimbreRowBg(color));
+        drawerLogToFile.setBackground(makeTimbreRowBg(color));
+        btnCloseSettings.setTextColor(color);
+        btnSettings.setColorFilter(color);
+        int[][] switchStates = {{android.R.attr.state_checked}, {}};
+        switchLogToFile.setThumbTintList(new ColorStateList(switchStates,
+                new int[]{color, 0xFF9E9E9E}));
+        switchLogToFile.setTrackTintList(new ColorStateList(switchStates,
+                new int[]{
+                        Color.argb(128, Color.red(color), Color.green(color), Color.blue(color)),
+                        0xFF3A3A3A
+                }));
+        updateLogStateText(switchLogToFile.isChecked());
         tvBpm.setTextColor(color);
         tvBpmLabel.setTextColor(color);
         btnRestart.setBackground(makeBpmRippleBg(color));
@@ -1048,34 +1106,20 @@ public class MainActivity extends AppCompatActivity {
         btnLock.setText(isLocked ? "🔒" : "🔓");
         btnLock.setContentDescription(getString(isLocked ? R.string.desc_unlock : R.string.desc_lock));
         int accent = ACCENT_COLORS[accentColorIndex];
-        int borderColor = isLocked ? Color.argb(102, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent;
-        // 锁定覆盖所有会改变运行状态的入口：跑步中误触 = 停拍
+        // 锁定只禁用会改变播放状态的入口
         for (Button btn : new Button[]{btnBpmMinus5, btnBpmMinus1, btnBpmPlus1, btnBpmPlus5}) {
             btn.setEnabled(enabled);
-            btn.setBackground(makeBpmRippleBg(borderColor));
+            btn.setBackground(makeBpmRippleBg(accent));
         }
         tvBpm.setEnabled(enabled);
         seekTickVolume.setEnabled(enabled);
-        seekTickVolume.setAlpha(enabled ? 1.0f : 0.4f);
+        seekTickVolume.setAlpha(enabled ? 1.0f : 0.6f);
         btnGain.setEnabled(enabled);
-        btnGain.setAlpha(enabled ? 1.0f : 0.4f);
-        layoutAccent.setEnabled(enabled);
-        layoutAccent.setAlpha(enabled ? 1.0f : 0.4f);
-        layoutTimbre.setEnabled(enabled);
-        layoutTimbre.setAlpha(enabled ? 1.0f : 0.4f);
-        layoutLogToFile.setEnabled(enabled);
-        layoutLogToFile.setAlpha(enabled ? 1.0f : 0.4f);
-        switchLogToFile.setEnabled(enabled);
+        btnGain.setAlpha(enabled ? 1.0f : 0.6f);
+        layoutBpmControls.setAlpha(enabled ? 1.0f : 0.6f);
         btnStartPause.setEnabled(enabled);
-        btnStartPause.setAlpha(enabled ? 1.0f : 0.4f);
+        btnStartPause.setAlpha(enabled ? 1.0f : 0.6f);
         btnRestart.setEnabled(enabled);
-        btnRestart.setAlpha(enabled ? 1.0f : 0.4f);
-        layoutTheme.setEnabled(enabled);
-        layoutTheme.setAlpha(enabled ? 1.0f : 0.4f);
-        btnLangToggle.setEnabled(enabled);
-        btnLangToggle.setAlpha(enabled ? 1.0f : 0.4f);
-        if (layoutBpmControls != null) {
-            layoutBpmControls.setAlpha(enabled ? 1.0f : 0.4f);
-        }
+        btnRestart.setAlpha(enabled ? 1.0f : 0.6f);
     }
 }

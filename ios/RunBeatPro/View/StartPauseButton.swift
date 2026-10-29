@@ -19,6 +19,8 @@ struct StartPauseButton: View {
                         .fill(state.accentColor)
                 )
         }
+        .disabled(state.isLocked)
+        .opacity(state.isLocked ? 0.6 : 1.0)
     }
 
     private var buttonLabel: String {

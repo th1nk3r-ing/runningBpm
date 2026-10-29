@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		01B55B59E45D0D390DF2317F /* BassDrum2.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5E4D536137B05E89D629BB0D /* BassDrum2.wav */; };
-		0B6B948341D6B0322E479321 /* AccentRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D17E0A1FF9F895B136EE898 /* AccentRow.swift */; };
 		0BD1448C75F9D116892DF8B3 /* StartPauseButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E92343DF8005B572DAB92CB /* StartPauseButton.swift */; };
 		0C95CD57DA03356F3125C517 /* BassDrum1.wav in Resources */ = {isa = PBXBuildFile; fileRef = 9D1345249FCAA648C1AB6A0B /* BassDrum1.wav */; };
 		185253D0290B142E33917FE2 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3A8AC04CA79D2B2EE6B5B604 /* Localizable.strings */; };
@@ -24,6 +23,7 @@
 		7C6A3A19C7E69BEE445253DE /* TimbrePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B936842F2582C578F4A7A58A /* TimbrePickerSheet.swift */; };
 		82ACB00C5F76AD460A42E40D /* Rimshot2.wav in Resources */ = {isa = PBXBuildFile; fileRef = FC1FED7279D7FA503DFEEF9F /* Rimshot2.wav */; };
 		96326DAB7A8A97B039DAD9A6 /* StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */; };
+		9AD004996E9C146A8B3B344D /* AccentPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39921D282B0A7B3B033B6AE2 /* AccentPickerSheet.swift */; };
 		9F356F34C49FC4448A50DC8E /* VolumeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F345B1E924436E7B0902C99D /* VolumeRow.swift */; };
 		A802D639985F00041258713E /* Rimshot1.wav in Resources */ = {isa = PBXBuildFile; fileRef = D3E83A4ADBF690EB780763AF /* Rimshot1.wav */; };
 		AADA4512AEDF6F4B7D999C3B /* RemoteCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */; };
@@ -31,9 +31,9 @@
 		CBDAD8CE47946B5AD2D314CC /* RunBeatProApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76CFF1AC18E4FDC189754CA /* RunBeatProApp.swift */; };
 		D5ED54D3FEA6EC2AF88ECF83 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F115557A5A382E522A33C4 /* AppDelegate.swift */; };
 		DAB9FC83271A7C9D367B3724 /* upbeat.wav in Resources */ = {isa = PBXBuildFile; fileRef = 21597F06EB874A419737FDE3 /* upbeat.wav */; };
-		E2815B4737DC08E1FB76D11C /* TimbreRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */; };
 		E4F7BE576094AED0D30CD8B1 /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF28165C7C33E82C2A08FB3 /* TimerView.swift */; };
 		E7339F7DEEC099B9ED42DBF0 /* downbeat.wav in Resources */ = {isa = PBXBuildFile; fileRef = FDD2D157525FDE7626486A0A /* downbeat.wav */; };
+		EA3522AFD9751D4952A0DFC7 /* SettingsDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40300A30BE8742338B72FBC6 /* SettingsDrawer.swift */; };
 		F38014A6040D2C15C216AEF6 /* tick_lo.wav in Resources */ = {isa = PBXBuildFile; fileRef = FF3E22BA3C465417F9AE12A0 /* tick_lo.wav */; };
 		F4EA707B68E82B1F56F914B1 /* BPMControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */; };
 		F95D825339A6A88B96941BCB /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E3BB321A37DA7F79E02F7E /* HapticManager.swift */; };
@@ -46,12 +46,12 @@
 		0D185F3CF0A88C1103362C5D /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		0FF28165C7C33E82C2A08FB3 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
 		1ABA7FFBE293F7D263E983B2 /* Mixer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Mixer.hpp; sourceTree = "<group>"; };
-		1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimbreRow.swift; sourceTree = "<group>"; };
 		1E4901310096719835A744EB /* ThemePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerSheet.swift; sourceTree = "<group>"; };
 		21597F06EB874A419737FDE3 /* upbeat.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = upbeat.wav; sourceTree = "<group>"; };
 		355DF0E85B4CBA5A43E16AC3 /* tick_hi.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = tick_hi.wav; sourceTree = "<group>"; };
 		38088EA46E9B3425FB99C3CF /* WavLoader.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = WavLoader.hpp; sourceTree = "<group>"; };
-		3D17E0A1FF9F895B136EE898 /* AccentRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccentRow.swift; sourceTree = "<group>"; };
+		39921D282B0A7B3B033B6AE2 /* AccentPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccentPickerSheet.swift; sourceTree = "<group>"; };
+		40300A30BE8742338B72FBC6 /* SettingsDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDrawer.swift; sourceTree = "<group>"; };
 		437CB0135A1AE9F4799CDA1F /* Clap2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Clap2.wav; sourceTree = "<group>"; };
 		43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarView.swift; sourceTree = "<group>"; };
 		4BDEF6DD726D32B1DE4B0645 /* Limiter.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Limiter.hpp; sourceTree = "<group>"; };
@@ -163,15 +163,15 @@
 		AD542506B3CFAF2AABFD0303 /* View */ = {
 			isa = PBXGroup;
 			children = (
-				3D17E0A1FF9F895B136EE898 /* AccentRow.swift */,
+				39921D282B0A7B3B033B6AE2 /* AccentPickerSheet.swift */,
 				B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */,
 				C844E2A8D40895E41C1061A9 /* BPMDisplayView.swift */,
 				6EDABAF8571E58A073F42F3B /* ContentView.swift */,
+				40300A30BE8742338B72FBC6 /* SettingsDrawer.swift */,
 				8E92343DF8005B572DAB92CB /* StartPauseButton.swift */,
 				43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */,
 				1E4901310096719835A744EB /* ThemePickerSheet.swift */,
 				B936842F2582C578F4A7A58A /* TimbrePickerSheet.swift */,
-				1C44F8704CAA4317D47B5FFD /* TimbreRow.swift */,
 				0FF28165C7C33E82C2A08FB3 /* TimerView.swift */,
 				F345B1E924436E7B0902C99D /* VolumeRow.swift */,
 			);
@@ -353,7 +353,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0B6B948341D6B0322E479321 /* AccentRow.swift in Sources */,
+				9AD004996E9C146A8B3B344D /* AccentPickerSheet.swift in Sources */,
 				D5ED54D3FEA6EC2AF88ECF83 /* AppDelegate.swift in Sources */,
 				309EE09203F94EB8745A4617 /* AppState.swift in Sources */,
 				32E7AA0A71C33EA15DDEF9D9 /* AudioEngineBridge.mm in Sources */,
@@ -363,11 +363,11 @@
 				F95D825339A6A88B96941BCB /* HapticManager.swift in Sources */,
 				AADA4512AEDF6F4B7D999C3B /* RemoteCommandManager.swift in Sources */,
 				CBDAD8CE47946B5AD2D314CC /* RunBeatProApp.swift in Sources */,
+				EA3522AFD9751D4952A0DFC7 /* SettingsDrawer.swift in Sources */,
 				0BD1448C75F9D116892DF8B3 /* StartPauseButton.swift in Sources */,
 				96326DAB7A8A97B039DAD9A6 /* StatusBarView.swift in Sources */,
 				7A09CA7F9F8051EE55F8BEF4 /* ThemePickerSheet.swift in Sources */,
 				7C6A3A19C7E69BEE445253DE /* TimbrePickerSheet.swift in Sources */,
-				E2815B4737DC08E1FB76D11C /* TimbreRow.swift in Sources */,
 				E4F7BE576094AED0D30CD8B1 /* TimerView.swift in Sources */,
 				9F356F34C49FC4448A50DC8E /* VolumeRow.swift in Sources */,
 			);

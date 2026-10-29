@@ -86,6 +86,7 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.drawerlayout:drawerlayout:1.2.0'
     constraints {
         implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22') {
             because 'Force Kotlin stdlib version to avoid duplicates'

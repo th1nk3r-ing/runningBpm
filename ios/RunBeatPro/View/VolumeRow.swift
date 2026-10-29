@@ -20,7 +20,7 @@ struct VolumeRow: View {
             )
             .tint(state.accentColor)
             .disabled(state.isLocked)
-            .opacity(state.isLocked ? 0.4 : 1.0)
+            .opacity(state.isLocked ? 0.6 : 1.0)
 
             // 倍率按钮
             Button {
@@ -38,7 +38,7 @@ struct VolumeRow: View {
                     )
             }
             .disabled(state.isLocked)
-            .opacity(state.isLocked ? 0.4 : 1.0)
+            .opacity(state.isLocked ? 0.6 : 1.0)
         }
     }
 
