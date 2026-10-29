@@ -18,6 +18,7 @@ public class PreferencesManager {
     private static final String KEY_GAIN_LEVEL  = "gain_level";
     private static final String KEY_ACCENT_INDEX = "accent_index";
     private static final String KEY_LANGUAGE     = "language";
+    private static final String KEY_LOG_TO_FILE  = "log_to_file";
 
     private static final double  DEFAULT_BPM         = 180.0;
     private static final int     DEFAULT_TICK_VOLUME  = 80;
@@ -115,5 +116,13 @@ public class PreferencesManager {
 
     public void setLanguage(String lang) {
         prefs.edit().putString(KEY_LANGUAGE, lang).commit();
+    }
+
+    public boolean getLogToFile() {
+        return prefs.getBoolean(KEY_LOG_TO_FILE, true);
+    }
+
+    public void setLogToFile(boolean enabled) {
+        prefs.edit().putBoolean(KEY_LOG_TO_FILE, enabled).apply();
     }
 }

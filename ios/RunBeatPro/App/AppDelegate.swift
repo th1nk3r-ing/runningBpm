@@ -27,6 +27,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        AudioEngineBridge.setupLogging()
         configureAudioSession()
         observeAudioSessionEvents()
         callObserver.setDelegate(self, queue: .main)
@@ -51,9 +52,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
                 options: [.mixWithOthers]
             )
             try session.setActive(true)
-            print("[AudioSession] configured: playback + mixWithOthers")
+            AudioEngineBridge.logInfo("AudioSession", message: "configured: playback + mixWithOthers")
         } catch {
-            print("[AudioSession] configuration failed: \(error.localizedDescription)")
+            AudioEngineBridge.logError("AudioSession", message: "configuration failed: \(error.localizedDescription)")
         }
     }
 
@@ -91,9 +92,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
     }
 
     private func handleMediaServicesReset() {
-        print("[AudioSession] media services were reset — reconfiguring")
+        AudioEngineBridge.logInfo("AudioSession", message: "media services were reset — reconfiguring")
         // 重置后旧的观察者可能失效：先全部卸载再重装（幂等）。
         removeAudioSessionObservers()
+        AudioEngineBridge.setupLogging()
         configureAudioSession()
         observeAudioSessionEvents()
         // 若正在运行，按新硬件重建 / 重启流（Paused/Idle 时保持不出声）。
@@ -105,7 +107,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
         do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("[AudioSession] route reactivation failed: \(error.localizedDescription)")
+            AudioEngineBridge.logError("AudioSession", message: "route reactivation failed: \(error.localizedDescription)")
         }
         AudioEngineBridge.shared().handleAudioRouteChange()
         // 路由变化可能伴随其它音频的出现/消失，刷新锁屏控制权归属。
@@ -132,7 +134,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
             self.suspendedForCall = false
             self.fallbackDidResume = true
             AudioEngineBridge.shared().handleAudioInterruptionEndedShouldResume(true)
-            print("[AudioSession] call ended: fallback resume (no .ended received)")
+            AudioEngineBridge.logInfo("AudioSession", message: "call ended: fallback resume (no .ended received)")
             RemoteCommandManager.shared.refreshAvailability()
         }
     }
@@ -159,16 +161,16 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
                     suspendedForCall = true
                 }
                 bridge.handleAudioInterruptionBegan()
-                print("[AudioSession] interruption began during call: driver stopped")
+                AudioEngineBridge.logWarn("AudioSession", message: "interruption began during call: driver stopped")
             } else if wasAudible {
                 // 非通话（如音乐 App 抢占会话）：先尝试重新并入混音，通常可不停拍。
                 do {
                     try AVAudioSession.sharedInstance().setActive(true)
-                    print("[AudioSession] interruption began: reactivated, staying in mix")
+                    AudioEngineBridge.logInfo("AudioSession", message: "interruption began: reactivated, staying in mix")
                 } catch {
                     suspendedForInterruption = true
                     bridge.handleAudioInterruptionBegan()
-                    print("[AudioSession] interruption began: reactivation failed (\(error.localizedDescription)), driver stopped")
+                    AudioEngineBridge.logError("AudioSession", message: "interruption began: reactivation failed (\(error.localizedDescription)), driver stopped")
                 }
             }
         case .ended:
@@ -178,7 +180,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {
-                print("[AudioSession] reactivation failed: \(error.localizedDescription)")
+                AudioEngineBridge.logError("AudioSession", message: "reactivation failed: \(error.localizedDescription)")
             }
             // 中断结束是权威恢复路径；清掉挂起标记，令通话结束兜底不再重复恢复
             // （兜底若已先恢复则此处跳过，避免二次启动 driver）。
@@ -186,7 +188,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
             suspendedForCall = false
             if shouldResume && fallbackDidResume {
                 fallbackDidResume = false
-                print("[AudioSession] interruption ended: already resumed by call fallback")
+                AudioEngineBridge.logInfo("AudioSession", message: "interruption ended: already resumed by call fallback")
             } else {
                 fallbackDidResume = false
                 bridge.handleAudioInterruptionEndedShouldResume(shouldResume)

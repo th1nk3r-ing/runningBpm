@@ -8,6 +8,7 @@
     <string name="label_volume">Volume</string>
     <string name="label_accent">Accent</string>
     <string name="label_timbre">Timbre</string>
+    <string name="label_log_to_file">Write Logs to File</string>
     <string name="btn_start">START</string>
     <string name="btn_pause">PAUSE</string>
     <string name="btn_resume">RESUME</string>

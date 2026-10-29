@@ -15,7 +15,6 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -25,6 +24,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -35,6 +35,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.runbeat.audio.AudioEngine;
+import com.runbeat.audio.Logx;
 
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -71,6 +72,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvAccentArrow;
     private int accentMode = 0;
     private View layoutTimbre;
+    private View layoutLogToFile;
+    private Switch switchLogToFile;
     private TextView tvTimbreName;
     private TextView tvTimbreArrow;
     private View layoutBpmControls;
@@ -111,7 +114,7 @@ public class MainActivity extends AppCompatActivity {
         public void run() {
             elapsedSeconds++;
             updateTimerDisplay();
-            Log.i("RunBeat-Stats", "elapsed=" + elapsedSeconds
+            Logx.i("RunBeat-Stats", "elapsed=" + elapsedSeconds
                     + " beats=" + AudioEngine.nativeGetBeatSeq()
                     + " wallMs=" + SystemClock.elapsedRealtime());
             if (isRunning && !isPaused) {
@@ -159,9 +162,11 @@ public class MainActivity extends AppCompatActivity {
         applyLanguage(prefsManager.getLanguage());
 
         super.onCreate(savedInstanceState);
+        Logx.init(this, prefsManager.getLogToFile());
         setContentView(R.layout.activity_main);
 
         bindViews();
+        switchLogToFile.setChecked(prefsManager.getLogToFile());
         setupListeners();
 
         // 权限拒绝只影响来电自动暂停，不影响节拍器
@@ -310,6 +315,8 @@ public class MainActivity extends AppCompatActivity {
         tvAccentName = findViewById(R.id.tvAccentName);
         tvAccentArrow = findViewById(R.id.tvAccentArrow);
         layoutTimbre = findViewById(R.id.layoutTimbre);
+        layoutLogToFile = findViewById(R.id.layoutLogToFile);
+        switchLogToFile = findViewById(R.id.switchLogToFile);
         tvTimbreName = findViewById(R.id.tvTimbreName);
         tvTimbreArrow = findViewById(R.id.tvTimbreArrow);
         layoutBpmControls = findViewById(R.id.layoutBpmControls);
@@ -366,6 +373,12 @@ public class MainActivity extends AppCompatActivity {
         });
 
         layoutTimbre.setOnClickListener(v -> showTimbreDialog());
+
+        switchLogToFile.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            prefsManager.setLogToFile(isChecked);
+            Logx.setFileEnabled(isChecked);
+        });
+        layoutLogToFile.setOnClickListener(v -> switchLogToFile.toggle());
         layoutTheme.setOnClickListener(v -> showThemeDialog());
         btnLangToggle.setOnClickListener(v -> toggleLanguage());
 
@@ -968,6 +981,10 @@ public class MainActivity extends AppCompatActivity {
         tvTimbreName.setTextColor(color);
         tvTimbreArrow.setTextColor(color);
         layoutTimbre.setBackground(makeTimbreRowBg(color));
+        layoutLogToFile.setBackground(makeTimbreRowBg(color));
+        switchLogToFile.setThumbTintList(csl);
+        switchLogToFile.setTrackTintList(ColorStateList.valueOf(
+                Color.argb(128, Color.red(color), Color.green(color), Color.blue(color))));
         tvBpm.setTextColor(color);
         tvBpmLabel.setTextColor(color);
         btnRestart.setBackground(makeBpmRippleBg(color));
@@ -1046,6 +1063,9 @@ public class MainActivity extends AppCompatActivity {
         layoutAccent.setAlpha(enabled ? 1.0f : 0.4f);
         layoutTimbre.setEnabled(enabled);
         layoutTimbre.setAlpha(enabled ? 1.0f : 0.4f);
+        layoutLogToFile.setEnabled(enabled);
+        layoutLogToFile.setAlpha(enabled ? 1.0f : 0.4f);
+        switchLogToFile.setEnabled(enabled);
         btnStartPause.setEnabled(enabled);
         btnStartPause.setAlpha(enabled ? 1.0f : 0.4f);
         btnRestart.setEnabled(enabled);

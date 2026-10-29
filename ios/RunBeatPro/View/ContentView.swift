@@ -50,7 +50,11 @@ struct ContentView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 8)
 
-                // ⑨ 版本信息
+                // ⑨ 日志写入文件
+                LogFileRow()
+                    .padding(.bottom, 8)
+
+                // ⑩ 版本信息
                 Text("v1.0")
                     .foregroundColor(.textSecondary)
                     .font(.system(size: 11))
@@ -119,6 +123,45 @@ struct ContentView: View {
                 }
             }
         )
+    }
+}
+
+// MARK: - 日志开关
+
+private struct LogFileRow: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(localized("label_log_to_file"))
+                .font(.system(size: 14))
+                .foregroundColor(.textSecondary)
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { state.logToFile },
+                set: { state.logToFile = $0 }
+            ))
+            .labelsHidden()
+            .tint(state.accentColor)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(state.accentColor.opacity(0.3), lineWidth: 1)
+                .background(Color(white: 0.12).cornerRadius(10))
+        )
+        .disabled(state.isLocked)
+        .opacity(state.isLocked ? 0.4 : 1.0)
+    }
+
+    private func localized(_ key: String) -> String {
+        let table = "Localizable"
+        let path = Bundle.main.path(forResource: state.currentLanguage, ofType: "lproj")
+        let bundle = path.flatMap { Bundle(path: $0) } ?? .main
+        return bundle.localizedString(forKey: key, value: nil, table: table)
     }
 }
 

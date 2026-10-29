@@ -42,4 +42,20 @@ FOUNDATION_EXPORT NSString * const RunBeatAudioStateChangedNotification;
 
 @end
 
+/// 统一日志门面：与 C++ / Android 共用级别、格式与轮转文件。
+@interface AudioEngineBridge (Logging)
+
+/// 幂等；App 启动时调用一次即可。
++ (void)setupLogging;
+
+/// 面板开关：关闭后仍走 os_log，仅停止写文件。
++ (void)setFileLoggingEnabled:(BOOL)enabled;
+
++ (void)logDebug:(NSString *)category message:(NSString *)message;
++ (void)logInfo:(NSString *)category message:(NSString *)message;
++ (void)logWarn:(NSString *)category message:(NSString *)message;
++ (void)logError:(NSString *)category message:(NSString *)message;
+
+@end
+
 NS_ASSUME_NONNULL_END

@@ -15,13 +15,13 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
-import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
 import com.runbeat.audio.AudioEngine;
+import com.runbeat.audio.Logx;
 
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -128,7 +128,7 @@ public class MetronomeService extends Service {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
-                Log.i(TAG, "audio becoming noisy — pausing");
+                Logx.i(TAG, "audio becoming noisy — pausing");
                 if (currentPaused && pausedByCall) {
                     // 通话中拔耳机：取消自动恢复，否则挂断后会从扬声器外放
                     pausedByCall = false;
@@ -147,7 +147,7 @@ public class MetronomeService extends Service {
             // 重建前刷新混音偏好，避免其它 App 已开始播放却仍重开 EXCLUSIVE
             AudioEngineRestorer.applyAudioSharingPreference(MetronomeService.this);
             int xruns = AudioEngine.nativeGetXRunCount();
-            Log.i("RunBeat-XRun", "xruns=" + xruns);
+            Logx.i("RunBeat-XRun", "xruns=" + xruns);
             AudioEngine.nativeRebuildStreamIfNeeded();
             streamHealthHandler.postDelayed(this, 1000);
         }
@@ -163,6 +163,7 @@ public class MetronomeService extends Service {
         currentPaused = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED, false);
         pausedByCall = currentRunning && runtimePrefs.getBoolean(KEY_PAUSED_BY_CALL, false);
         preferences = new PreferencesManager(this);
+        Logx.init(this, preferences.getLogToFile());
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         // Service 是通话监听唯一持有者：进程被杀 + START_STICKY 重启后仍能自动暂停
@@ -230,14 +231,14 @@ public class MetronomeService extends Service {
      */
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Log.i(TAG, "task removed — stopping playback");
+        Logx.i(TAG, "task removed — stopping playback");
         handleStopRequest();
         super.onTaskRemoved(rootIntent);
     }
 
     /** 通知栏「停止」：结束播放、释放引擎并清除可恢复运行态；须在主线程调用。 */
     private void handleStopRequest() {
-        Log.i(TAG, "stop requested");
+        Logx.i(TAG, "stop requested");
         AudioEngine.nativeStop();
         AudioEngine.destroy();
         currentRunning = false;

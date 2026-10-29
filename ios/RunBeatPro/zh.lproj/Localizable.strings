@@ -5,6 +5,7 @@
 "label_volume" = "音量";
 "label_accent" = "重音";
 "label_timbre" = "音色";
+"label_log_to_file" = "日志写入文件";
 "btn_start" = "开始";
 "btn_pause" = "暂停";
 "btn_resume" = "继续";

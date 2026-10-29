@@ -5,6 +5,7 @@
 "label_volume" = "Volume";
 "label_accent" = "Accent";
 "label_timbre" = "Timbre";
+"label_log_to_file" = "Write Logs to File";
 "btn_start" = "START";
 "btn_pause" = "PAUSE";
 "btn_resume" = "RESUME";

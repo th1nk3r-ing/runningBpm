@@ -400,7 +400,40 @@
 
     </LinearLayout>
 
-    <!-- ⑨ 版本信息 -->
+    <!-- ⑨ 日志写入文件 -->
+    <LinearLayout
+        android:id="@+id/layoutLogToFile"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_selector_row"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingHorizontal="12dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/label_log_to_file"
+            android:textColor="@color/textSecondary"
+            android:textSize="14sp" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <Switch
+            android:id="@+id/switchLogToFile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:showText="false" />
+
+    </LinearLayout>
+
+    <!-- ⑩ 版本信息 -->
     <TextView
         android:id="@+id/tvBuildInfo"
         android:layout_width="match_parent"

@@ -132,6 +132,15 @@ final class AppState {
         return names[accentColorIndex]
     }
 
+    // MARK: - Logging
+
+    var logToFile: Bool = true {
+        didSet {
+            AudioEngineBridge.setFileLoggingEnabled(logToFile)
+            saveLogToFile()
+        }
+    }
+
     // MARK: - Language
 
     var currentLanguage: String = "zh" {
@@ -375,6 +384,10 @@ final class AppState {
         UserDefaults.standard.setValue(currentLanguage, forKey: "language")
     }
 
+    private func saveLogToFile() {
+        UserDefaults.standard.setValue(logToFile, forKey: "log_to_file")
+    }
+
     private func loadPersistedState() {
         let ud = UserDefaults.standard
 
@@ -403,6 +416,8 @@ final class AppState {
         if savedAccentIdx >= 0 && savedAccentIdx < Self.ACCENT_COLORS.count {
             accentColorIndex = savedAccentIdx
         }
+
+        logToFile = (ud.object(forKey: "log_to_file") as? Bool) ?? true
 
         currentLanguage = ud.string(forKey: "language") ?? "zh"
     }

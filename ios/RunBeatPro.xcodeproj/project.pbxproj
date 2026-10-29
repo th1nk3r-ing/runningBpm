@@ -55,6 +55,7 @@
 		437CB0135A1AE9F4799CDA1F /* Clap2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Clap2.wav; sourceTree = "<group>"; };
 		43AEA5A6E67FA564796F8AAE /* StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarView.swift; sourceTree = "<group>"; };
 		4BDEF6DD726D32B1DE4B0645 /* Limiter.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Limiter.hpp; sourceTree = "<group>"; };
+		522334B9C399B6E376BE8E38 /* Constants.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Constants.hpp; sourceTree = "<group>"; };
 		52B18B508E44DBEB4819F153 /* RunBeatPro.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RunBeatPro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E4D536137B05E89D629BB0D /* BassDrum2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = BassDrum2.wav; sourceTree = "<group>"; };
 		63F115557A5A382E522A33C4 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -63,6 +64,7 @@
 		8E92343DF8005B572DAB92CB /* StartPauseButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartPauseButton.swift; sourceTree = "<group>"; };
 		8EC153B1BEB20B1EF6E027E6 /* zh */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = zh; path = zh.lproj/Localizable.strings; sourceTree = "<group>"; };
 		905042F8B9B6368FBC1858D9 /* AudioEngineBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioEngineBridge.h; sourceTree = "<group>"; };
+		9CCF8C1CAA1111D27C91C573 /* Log.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Log.hpp; sourceTree = "<group>"; };
 		9D1345249FCAA648C1AB6A0B /* BassDrum1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = BassDrum1.wav; sourceTree = "<group>"; };
 		AD6B5F276370AC07AB62D733 /* RemoteCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommandManager.swift; sourceTree = "<group>"; };
 		B5BB32B58112BB42FA09E779 /* BPMControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BPMControlsView.swift; sourceTree = "<group>"; };
@@ -109,13 +111,6 @@
 			path = cpp;
 			sourceTree = "<group>";
 		};
-		39721E8717DC82A09393998D /* Audio */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Audio;
-			sourceTree = "<group>";
-		};
 		3D239F4C1FC90C1E0907132A /* runningBpm */ = {
 			isa = PBXGroup;
 			children = (
@@ -154,7 +149,6 @@
 			isa = PBXGroup;
 			children = (
 				D79F96D99CE912F2CEC8E366 /* App */,
-				39721E8717DC82A09393998D /* Audio */,
 				ADEF43839BCA7A249FD2338C /* Bridge */,
 				3A8AC04CA79D2B2EE6B5B604 /* Localizable.strings */,
 				7D3AEB891A0FD7869C850AEE /* Model */,
@@ -243,7 +237,9 @@
 			children = (
 				F31C380071CA0B2F96D7F4E2 /* AudioEngine.hpp */,
 				D515DA8083239060B56E04EF /* Clock.hpp */,
+				522334B9C399B6E376BE8E38 /* Constants.hpp */,
 				4BDEF6DD726D32B1DE4B0645 /* Limiter.hpp */,
+				9CCF8C1CAA1111D27C91C573 /* Log.hpp */,
 				1ABA7FFBE293F7D263E983B2 /* Mixer.hpp */,
 				FBE103839CA017C5E2C6AC6F /* SamplePlayer.hpp */,
 				38088EA46E9B3425FB99C3CF /* WavLoader.hpp */,
@@ -439,6 +435,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/../cpp/core",
+					"$(SRCROOT)/../cpp/third_party/spdlog/include",
 					"$(inherited)",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -544,6 +541,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/../cpp/core",
+					"$(SRCROOT)/../cpp/third_party/spdlog/include",
 					"$(inherited)",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

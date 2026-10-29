@@ -21,7 +21,10 @@ endif()
 
 # 核心引擎库 — 纯 C++17 头文件库
 add_library(runbeat_core INTERFACE)
-target_include_directories(runbeat_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(runbeat_core INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/spdlog/include
+)
 target_compile_features(runbeat_core INTERFACE cxx_std_17)
 
 if(ANDROID)
@@ -54,6 +57,7 @@ else()
             limiter_test
             engine_test
             wav_loader_test
+            log_test
         )
         foreach(test_name IN LISTS RUNBEAT_TESTS)
             add_executable(${test_name} test/${test_name}.cpp)

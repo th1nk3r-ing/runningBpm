@@ -29,6 +29,7 @@ $$\Delta\phi = \frac{BPM}{60.0 \cdot sampleRate}$$
 * **Lock-free 参数交换**：
   * 使用 `std::atomic<double>` 传递 BPM 和音量系数（实际工程中若平台不支持浮点原子无锁，可替换为 `atomic<int64_t>` 传递位模式）。
   * 严禁在回调中使用 `mutex`、`printf` 或任何内存分配（`new`/`malloc`）。
+  * **唯一例外**：每拍观测打点 `RunBeat-Beat`（见 §11.4）。它是验证打点精度的量测工具而非业务日志，约束条件被单独收紧，不得作为其它日志进入回调的先例。
 
 * **双缓冲参数状态 (Double Buffering)**：对于复杂的设置变更，使用双缓冲结构，确保采样期间参数的原子性一致。
 * **抗抖动渲染**：逻辑必须封装在 `for (int i = 0; i < numFrames; i++)` 循环内，彻底杜绝回调边界抖动（Callback Boundary Jitter）。
@@ -142,12 +143,14 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
   ├── CMakeLists.txt
   ├── aaudio_engine.cpp          // JNI 桥接 + AAudio 驱动
   ├── gen_wav.cpp                // WAV 资源离线生成工具
+  ├── /third_party/spdlog        // 日志库（v1.17.0，header-only）
   └── /core (C++ Shared)
         ├── Clock.hpp            // 倒计数式节拍时钟
         ├── SamplePlayer.hpp     // Voice Pool 多复音播放器
         ├── Mixer.hpp            // 双路信号混音（双源→mono）
         ├── Limiter.hpp          // 软/硬限幅器
         ├── AudioEngine.hpp      // 引擎状态机与完整 Pipeline
+        ├── Log.hpp              // 统一日志门面（三端共用级别/格式/sink）
         └── WavLoader.hpp        // WAV 解析 + 重采样 + 生成
 /android
   └── /app/src/main
@@ -170,3 +173,53 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
         ├── Service/                       // 偏好、触觉、锁屏命令
         └── View/                          // SwiftUI 界面组件
 ```
+
+---
+
+### 11. 日志系统
+
+统一门面：一套级别、一套格式、一套 sink，C++ / Android / iOS 共用。实现为 `cpp/core/Log.hpp`（header-only），底座是 vendored 的 spdlog v1.17.0。
+
+#### 11.1 分层
+
+| 层 | 入口 | 说明 |
+| --- | --- | --- |
+| C++ | `beat::log::Get("RunBeat-Native")->info(...)` | 直连 spdlog logger |
+| Android | `Logx.i("RunBeat-XRun", ...)` | native 可用时经 JNI 转发，否则回落 `android.util.Log` |
+| iOS | `AudioEngineBridge.logInfo("AudioSession", message: ...)` | 同一 `beat::log::Get()`，ObjC 与 Swift 共用 |
+
+除 `RunBeat-Beat` 外都是同步 logger：日志量小、不碰音频线程，因此不留异步队列，开关即时生效。
+
+#### 11.2 级别与 tag
+
+* 级别：`trace/debug/info/warn/error/critical`，全局默认 `trace`，release 同样保留。
+* tag 沿用原 logcat 标签：`RunBeat-Native`、`RunBeat-Beat`、`RunBeat-Stats`、`RunBeat-XRun`、`RunBeat-Service`、`AudioEngine`、`AudioEngineBridge`、`AudioUnit`、`AudioSession`、`RemoteCommand`。
+
+#### 11.3 sink
+
+| 平台 | 系统日志 | 文件 |
+| --- | --- | --- |
+| Android | `android_sink`（tag = logger 名，只送原始 message） | `<filesDir>/logs/runbeat.log` |
+| iOS | 自绘 `os_log` sink（subsystem `com.runbeat.pro`，category = logger 名） | `Library/Caches/Logs/runbeat.log` |
+| host 测试 | 无系统日志落点（Linux 为 null sink，macOS 走 os_log） | 不写 |
+
+iOS 级别映射：`trace/debug → OS_LOG_TYPE_DEBUG`，`info/warn → OS_LOG_TYPE_DEFAULT`（`info` 用 DEFAULT 是为了让 `log show` 事后可查），`err → ERROR`，`critical → FAULT`。
+
+文件按 2 MiB × 3 轮转，3 秒周期 flush；目录不可写时自动降级为只打系统日志。
+
+文件 sink 挂在 spdlog 自带的 `dist_sink` 上：面板「日志写入文件」开关就是挂载/摘除子 sink，关掉后完全不落盘、也不留空文件；首次真正需要落盘时才打开文件。状态存 Android `SharedPreferences` 的 `log_to_file` / iOS `UserDefaults` 同名键，默认开启。
+
+#### 11.4 回调线程内的每拍打点
+
+`RunBeat-Beat` 是全链路唯一跑在音频回调里的日志，用途是核对「目标 BPM 是否精确打点」：逐拍记录 `beatSeq`、绝对帧位置与采样率，事后离线比对漂移。它是量测工具，不是业务日志，因此**刻意**留在回调线程内，不经任何队列与队列线程。
+
+约束被单独收紧：
+
+* 同步 logger + 单 sink + `null_mutex`，正常路径不取锁；`Init` 时缓存裸指针，不做 registry 查找。
+* `SPDLOG_ANDROID_RETRIES=0`，`EAGAIN` 不重试也不 sleep 等待 logd。
+* 单独装了空的 error handler：logd 写失败直接丢弃，不退到默认 handler 的静态锁 + `localtime` + `fprintf`。
+* 不挂文件 sink，只写 logcat，避免回调线程上的磁盘抖动。
+* `memory_buf_t` 为 250 字节栈内缓冲，该行（约 30 字符）正常路径不产生堆分配。
+* 剩余开销即一次 logd 写，180 BPM 下每秒 3 次，相对 buffer 周期可忽略。
+
+这条链路的准入条件只有一条：观测打点本身。任何业务日志一律不得借道进入音频回调。

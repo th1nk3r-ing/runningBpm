@@ -8,6 +8,7 @@
     <string name="label_volume">音量</string>
     <string name="label_accent">重音</string>
     <string name="label_timbre">音色</string>
+    <string name="label_log_to_file">日志写入文件</string>
     <string name="btn_start">开始</string>
     <string name="btn_pause">暂停</string>
     <string name="btn_resume">继续</string>

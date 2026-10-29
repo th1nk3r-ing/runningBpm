@@ -2,6 +2,7 @@
 
 #include "AudioEngine.hpp"
 #include "Constants.hpp"
+#include "Log.hpp"
 #include "WavLoader.hpp"
 
 #import <AudioUnit/AudioUnit.h>
@@ -11,6 +12,9 @@ NSString * const RunBeatAudioInterruptionRequiresPauseNotification =
         @"AudioInterruptionRequiresPauseNotification";
 NSString * const RunBeatAudioStateChangedNotification =
         @"AudioStateChangedNotification";
+
+static constexpr const char* kBridgeLogTag = "AudioEngineBridge";
+static constexpr const char* kAudioUnitLogTag = "AudioUnit";
 
 // 全局 C++ 引擎单例（进程级生命期）
 static AudioEngine gEngine;
@@ -109,7 +113,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
             [self setSampleRateInternal:self->_driver.sampleRate];
         }
 
-        NSLog(@"[AudioEngineBridge] initialized (sampleRate=%d)", self->_sampleRate);
+        ::beat::log::Get(kBridgeLogTag)->info("initialized (sampleRate={})", self->_sampleRate);
     }];
 }
 
@@ -124,7 +128,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         self->_isRunning = NO;
         self->_isPaused = NO;
         [self _cancelStreamRebuildRetryLocked];
-        NSLog(@"[AudioEngineBridge] destroyed");
+        ::beat::log::Get(kBridgeLogTag)->info("destroyed");
     }];
 }
 
@@ -142,7 +146,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
             self->_isPaused = NO;
             return NO;
         }
-        NSLog(@"[AudioEngineBridge] start(%.1f)", bpm);
+        ::beat::log::Get(kBridgeLogTag)->info("start({:.1f})", bpm);
         return YES;
     }];
     return ok;
@@ -156,7 +160,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         self->_isRunning = NO;
         self->_isPaused = NO;
         [self _cancelStreamRebuildRetryLocked];
-        NSLog(@"[AudioEngineBridge] stop");
+        ::beat::log::Get(kBridgeLogTag)->info("stop");
     }];
 }
 
@@ -167,7 +171,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         [self->_driver stop];
         self->_isPaused = YES;
         [self _cancelStreamRebuildRetryLocked];
-        NSLog(@"[AudioEngineBridge] pause");
+        ::beat::log::Get(kBridgeLogTag)->info("pause");
     }];
 }
 
@@ -365,11 +369,11 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         BOOL loOk = [self _loadWavFromURL:loURL into:&loSamples];
 
         if (!hiOk || hiSamples.empty()) {
-            NSLog(@"[AudioEngineBridge] WARNING: failed to load tickHi, using fallback");
+            ::beat::log::Get(kBridgeLogTag)->warn("failed to load tickHi, using fallback");
             hiSamples = WavGenerator::MakeWoodTick(self->_sampleRate, true);
         }
         if (!loOk || loSamples.empty()) {
-            NSLog(@"[AudioEngineBridge] WARNING: failed to load tickLo, reusing tickHi");
+            ::beat::log::Get(kBridgeLogTag)->warn("failed to load tickLo, reusing tickHi");
             loSamples = hiSamples;
         }
 
@@ -417,8 +421,9 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
 
     if (ok) {
         *outSamples = loader.GetSamples();
-        NSLog(@"[AudioEngineBridge] loaded WAV: %@ (%zu samples, %d Hz)",
-              url.lastPathComponent, outSamples->size(), _sampleRate);
+        ::beat::log::Get(kBridgeLogTag)->info("loaded WAV: {} ({} samples, {} Hz)",
+                                              url.lastPathComponent.UTF8String,
+                                              outSamples->size(), _sampleRate);
     }
     return ok;
 }
@@ -454,11 +459,11 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
             gChimeSamples = WavLoader::Resample(gChimeSamples, gSamplesLoadedSampleRate, sampleRate);
             gEngine.LoadChimeSamples(gChimeSamples.data(), gChimeSamples.size());
         }
-        NSLog(@"[AudioEngineBridge] resampled WAV samples %d → %d Hz",
-              gSamplesLoadedSampleRate, sampleRate);
+        ::beat::log::Get(kBridgeLogTag)->info("resampled WAV samples {} → {} Hz",
+                                              gSamplesLoadedSampleRate, sampleRate);
     } else {
         [self _regenerateFallbackTicksAtSampleRate:sampleRate];
-        NSLog(@"[AudioEngineBridge] fallback ticks regenerated at %d Hz", sampleRate);
+        ::beat::log::Get(kBridgeLogTag)->info("fallback ticks regenerated at {} Hz", sampleRate);
     }
     gSamplesLoadedSampleRate = sampleRate;
 }
@@ -542,13 +547,13 @@ static OSStatus RenderCallback(
 
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
     if (!comp) {
-        NSLog(@"[AudioUnit] ERROR: AudioComponentFindNext failed");
+        ::beat::log::Get(kAudioUnitLogTag)->error("AudioComponentFindNext failed");
         return NO;
     }
 
     OSStatus status = AudioComponentInstanceNew(comp, &_audioUnit);
     if (status != noErr) {
-        NSLog(@"[AudioUnit] ERROR: AudioComponentInstanceNew failed: %d", (int)status);
+        ::beat::log::Get(kAudioUnitLogTag)->error("AudioComponentInstanceNew failed: {}", (int)status);
         return NO;
     }
 
@@ -573,7 +578,7 @@ static OSStatus RenderCallback(
         sizeof(asbd)
     );
     if (status != noErr) {
-        NSLog(@"[AudioUnit] ERROR: Set StreamFormat failed: %d", (int)status);
+        ::beat::log::Get(kAudioUnitLogTag)->error("Set StreamFormat failed: {}", (int)status);
         return NO;
     }
 
@@ -590,13 +595,13 @@ static OSStatus RenderCallback(
         sizeof(callbackStruct)
     );
     if (status != noErr) {
-        NSLog(@"[AudioUnit] ERROR: SetRenderCallback failed: %d", (int)status);
+        ::beat::log::Get(kAudioUnitLogTag)->error("SetRenderCallback failed: {}", (int)status);
         return NO;
     }
 
     status = AudioUnitInitialize(_audioUnit);
     if (status != noErr) {
-        NSLog(@"[AudioUnit] ERROR: AudioUnitInitialize failed: %d", (int)status);
+        ::beat::log::Get(kAudioUnitLogTag)->error("AudioUnitInitialize failed: {}", (int)status);
         return NO;
     }
 
@@ -607,17 +612,17 @@ static OSStatus RenderCallback(
     if (!_ready || !_audioUnit) return NO;
     OSStatus status = AudioOutputUnitStart(_audioUnit);
     if (status != noErr) {
-        NSLog(@"[AudioUnit] ERROR: AudioOutputUnitStart failed: %d", (int)status);
+        ::beat::log::Get(kAudioUnitLogTag)->error("AudioOutputUnitStart failed: {}", (int)status);
         return NO;
     }
-    NSLog(@"[AudioUnit] started");
+    ::beat::log::Get(kAudioUnitLogTag)->info("started");
     return YES;
 }
 
 - (void)stop {
     if (!_audioUnit) return;
     AudioOutputUnitStop(_audioUnit);
-    NSLog(@"[AudioUnit] stopped");
+    ::beat::log::Get(kAudioUnitLogTag)->info("stopped");
 }
 
 - (void)dealloc {
@@ -627,6 +632,52 @@ static OSStatus RenderCallback(
         AudioComponentInstanceDispose(_audioUnit);
         _audioUnit = nil;
     }
+}
+
+@end
+
+static void WriteBridgeLog(spdlog::level::level_enum level, NSString* category, NSString* message) {
+    const char* tag = category.length > 0 ? category.UTF8String : "RunBeatPro";
+    const char* text = message.UTF8String;
+    ::beat::log::Get(tag)->log(level, "{}", text != nullptr ? text : "");
+}
+
+@implementation AudioEngineBridge (Logging)
+
++ (void)setupLogging {
+    NSString* base = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    NSString* dir = base.length > 0 ? [base stringByAppendingPathComponent:@"Logs"] : @"";
+    if (dir.length > 0) {
+        [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil];
+    }
+    // AppState 可能先于本方法初始化，开关状态直接以此处的持久值为准
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    const bool fileEnabled = [defaults objectForKey:@"log_to_file"] == nil
+            ? true : [defaults boolForKey:@"log_to_file"];
+    ::beat::log::Init({dir.UTF8String, spdlog::level::trace, std::size_t(2) << 20, 3, fileEnabled});
+}
+
++ (void)setFileLoggingEnabled:(BOOL)enabled {
+    ::beat::log::SetFileEnabled(enabled);
+}
+
++ (void)logDebug:(NSString *)category message:(NSString *)message {
+    WriteBridgeLog(spdlog::level::debug, category, message);
+}
+
++ (void)logInfo:(NSString *)category message:(NSString *)message {
+    WriteBridgeLog(spdlog::level::info, category, message);
+}
+
++ (void)logWarn:(NSString *)category message:(NSString *)message {
+    WriteBridgeLog(spdlog::level::warn, category, message);
+}
+
++ (void)logError:(NSString *)category message:(NSString *)message {
+    WriteBridgeLog(spdlog::level::err, category, message);
 }
 
 @end

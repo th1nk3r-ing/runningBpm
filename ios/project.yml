@@ -19,6 +19,7 @@ settings:
     CLANG_CXX_LANGUAGE_STANDARD: "c++17"
     HEADER_SEARCH_PATHS:
       - "$(SRCROOT)/../cpp/core"
+      - "$(SRCROOT)/../cpp/third_party/spdlog/include"
       - "$(inherited)"
 
 targets:

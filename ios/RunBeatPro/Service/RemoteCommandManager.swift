@@ -139,10 +139,10 @@ final class RemoteCommandManager {
         commandCenter.togglePlayPauseCommand.isEnabled = !yield
         if yield {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-            print("[RemoteCommand] 其它音频在播，让出系统控制中心")
+            AudioEngineBridge.logInfo("RemoteCommand", message: "其它音频在播，让出系统控制中心")
         } else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = pendingInfo
-            print("[RemoteCommand] 无其它音频，恢复锁屏控制")
+            AudioEngineBridge.logInfo("RemoteCommand", message: "无其它音频，恢复锁屏控制")
         }
     }
 
