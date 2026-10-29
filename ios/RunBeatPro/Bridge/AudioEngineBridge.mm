@@ -182,6 +182,7 @@ typedef NS_ENUM(NSUInteger, PlaybackIntent) {
         // 重试链路会先 gEngine.Resume() 再启 driver；成功即回到 Running/未暂停。
         return [self _attemptStreamRestartLockedWithNotify:NO];
     }];
+    if (ok) ::beat::log::Get(kBridgeLogTag)->info("resume");
     return ok;
 }
 
@@ -657,7 +658,7 @@ static void WriteBridgeLog(spdlog::level::level_enum level, NSString* category, 
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     const bool fileEnabled = [defaults objectForKey:@"log_to_file"] == nil
             ? true : [defaults boolForKey:@"log_to_file"];
-    ::beat::log::Init({dir.UTF8String, spdlog::level::trace, std::size_t(2) << 20, 3, fileEnabled});
+    ::beat::log::Init({dir.UTF8String, spdlog::level::trace, std::size_t(4) << 20, 2, fileEnabled});
 }
 
 + (void)setFileLoggingEnabled:(BOOL)enabled {

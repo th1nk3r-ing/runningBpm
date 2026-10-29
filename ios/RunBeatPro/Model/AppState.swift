@@ -5,6 +5,20 @@ import Combine
 @Observable
 final class AppState {
 
+    /// init 恢复持久化状态期间抑制「用户操作」日志。
+    @ObservationIgnored private var isRestoring = true
+    @ObservationIgnored private var bpmLogWorkItem: DispatchWorkItem?
+    /// 本次 isLocked 变化是否来自 60s 自动锁定。
+    @ObservationIgnored private var autoLockPending = false
+
+    private var bpmText: String {
+        String(format: "%.1f", bpm)
+    }
+
+    private func logUI(_ message: String) {
+        AudioEngineBridge.logInfo("RunBeat-UI", message: message)
+    }
+
     // MARK: - BPM
 
     var bpm: Double = 180.0 {
@@ -47,6 +61,10 @@ final class AppState {
 
     var isLocked: Bool = false {
         didSet {
+            let auto = autoLockPending
+            autoLockPending = false
+            guard oldValue != isLocked else { return }
+            logUI(isLocked ? (auto ? "auto-lock" : "lock") : "unlock")
             if isLocked {
                 cancelAutoLock()
             }
@@ -59,6 +77,9 @@ final class AppState {
         didSet {
             AudioEngineBridge.shared().setAccentMode(accentMode)
             saveAccentMode()
+            if !isRestoring, oldValue != accentMode {
+                logUI("accent=\(accentMode) \(accentModeName)")
+            }
         }
     }
 
@@ -91,6 +112,9 @@ final class AppState {
             if gainLevel > 3 { gainLevel = 3 }
             AudioEngineBridge.shared().setOutputGain(Double(gainLevel))
             saveGainLevel()
+            if !isRestoring, oldValue != gainLevel {
+                logUI("gain=x\(gainLevel)")
+            }
         }
     }
 
@@ -109,6 +133,9 @@ final class AppState {
     var accentColorIndex: Int = 0 {
         didSet {
             saveAccentIndex()
+            if !isRestoring, oldValue != accentColorIndex {
+                logUI("theme=\(accentColorIndex) \(accentColorName)")
+            }
         }
     }
 
@@ -136,6 +163,9 @@ final class AppState {
 
     var logToFile: Bool = true {
         didSet {
+            guard oldValue != logToFile else { return }
+            // 先写这条再摘 sink：关闭时该行必须落盘
+            if !isRestoring { logUI("file log \(logToFile ? "on" : "off")") }
             AudioEngineBridge.setFileLoggingEnabled(logToFile)
             saveLogToFile()
         }
@@ -146,6 +176,9 @@ final class AppState {
     var currentLanguage: String = "zh" {
         didSet {
             saveLanguage()
+            if !isRestoring, oldValue != currentLanguage {
+                logUI("language=\(currentLanguage)")
+            }
         }
     }
 
@@ -175,6 +208,7 @@ final class AppState {
 
     init() {
         loadPersistedState()
+        isRestoring = false
         audioInterruptionObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name.RunBeatAudioInterruptionRequiresPause,
             object: nil,
@@ -227,7 +261,11 @@ final class AppState {
 
     func start() {
         guard !isRunning else { return }
-        guard AudioEngineBridge.shared().start(withBpm: bpm) else { return }
+        guard AudioEngineBridge.shared().start(withBpm: bpm) else {
+            AudioEngineBridge.logWarn("RunBeat-UI", message: "start failed: engine unavailable")
+            return
+        }
+        logUI("start bpm=\(bpmText)")
         isRunning = true
         isPaused = false
         elapsedSeconds = 0
@@ -241,6 +279,7 @@ final class AppState {
 
     func pause() {
         guard isRunning && !isPaused else { return }
+        logUI("pause")
         isPaused = true
         AudioEngineBridge.shared().pause()
         RemoteCommandManager.shared.updateNowPlaying(
@@ -253,7 +292,11 @@ final class AppState {
 
     func resume() {
         guard isRunning && isPaused else { return }
-        guard AudioEngineBridge.shared().resume() else { return }
+        guard AudioEngineBridge.shared().resume() else {
+            AudioEngineBridge.logWarn("RunBeat-UI", message: "resume failed: stream unavailable")
+            return
+        }
+        logUI("resume bpm=\(bpmText)")
         isPaused = false
         RemoteCommandManager.shared.updateNowPlaying(
             bpm: bpm,
@@ -270,8 +313,10 @@ final class AppState {
             isPaused = false
             cancelAutoLock()
             RemoteCommandManager.shared.clearNowPlaying()
+            AudioEngineBridge.logWarn("RunBeat-UI", message: "restart failed: engine unavailable")
             return
         }
+        logUI("restart bpm=\(bpmText)")
         elapsedSeconds = 0
         isRunning = true
         isPaused = false
@@ -288,7 +333,22 @@ final class AppState {
         newBpm = max(120.0, min(220.0, newBpm))
         if newBpm != bpm {
             bpm = newBpm
+            scheduleBpmLog()
         }
+    }
+
+    func logVolumeCommitted() {
+        logUI("volume=\(Int((tickVolume * 100).rounded()))")
+    }
+
+    private func scheduleBpmLog() {
+        bpmLogWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.logUI("bpm=\(self.bpmText)")
+        }
+        bpmLogWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
     }
 
     func cycleGain() {
@@ -310,6 +370,9 @@ final class AppState {
 
         if let hiURL, let loURL {
             AudioEngineBridge.shared().loadTickHi(withFileURL: hiURL, tickLo: loURL)
+            logUI("timbre=\(index) \(timbreName)")
+        } else {
+            AudioEngineBridge.logWarn("RunBeat-UI", message: "timbre load failed: \(index) \(timbreName)")
         }
     }
 
@@ -321,6 +384,7 @@ final class AppState {
         cancelAutoLock()
         let item = DispatchWorkItem { [weak self] in
             guard let self = self, self.isRunning, !self.isPaused, !self.isLocked else { return }
+            self.autoLockPending = true
             self.isLocked = true
         }
         autoLockWorkItem = item

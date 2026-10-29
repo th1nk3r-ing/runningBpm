@@ -3,6 +3,7 @@ import SwiftUI
 /// 音量滑块 + 倍率按钮
 struct VolumeRow: View {
     @Environment(AppState.self) private var state
+    @State private var volumeBeforeDrag: Float?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -16,13 +17,19 @@ struct VolumeRow: View {
                     get: { Double(state.tickVolume) },
                     set: { state.tickVolume = Float($0) }
                 ),
-                in: 0...1.0
+                in: 0...1.0,
+                onEditingChanged: { editing in
+                    if editing {
+                        volumeBeforeDrag = state.tickVolume
+                    } else if let before = volumeBeforeDrag, before != state.tickVolume {
+                        state.logVolumeCommitted()
+                    }
+                }
             )
             .tint(state.accentColor)
             .disabled(state.isLocked)
             .opacity(state.isLocked ? 0.6 : 1.0)
 
-            // 倍率按钮
             Button {
                 state.cycleGain()
                 HapticManager.lightTap()
@@ -47,19 +54,5 @@ struct VolumeRow: View {
         let path = Bundle.main.path(forResource: state.currentLanguage, ofType: "lproj")
         let bundle = path.flatMap { Bundle(path: $0) } ?? .main
         return bundle.localizedString(forKey: key, value: nil, table: table)
-    }
-}
-
-/// 倍率按钮的包装 View（避免重复）
-struct GainButtonModifier: ViewModifier {
-    let accentColor: Color
-    func body(content: Content) -> some View {
-        content
-            .frame(width: 52, height: 52)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(accentColor, lineWidth: 1)
-                    .background(Color.controlBg.cornerRadius(8))
-            )
     }
 }

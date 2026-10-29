@@ -6,7 +6,6 @@ struct BPMControlsView: View {
 
     /// 长按连续调节定时器
     @State private var holdTimer: Timer?
-    @State private var holdDelta: Int = 0
 
     var body: some View {
         HStack(spacing: 4) {
@@ -22,6 +21,7 @@ struct BPMControlsView: View {
     @ViewBuilder
     private func bpmButton(delta: Int) -> some View {
         Button {
+            stopHold()
             state.adjustBpm(delta: delta)
             HapticManager.tap()
         } label: {
@@ -46,17 +46,9 @@ struct BPMControlsView: View {
     // MARK: - 长按连续调节
 
     private func startHold(delta: Int) {
-        holdDelta = delta
         holdTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             state.adjustBpm(delta: delta)
         }
-        // 300ms 后开始重复
-        RunLoop.main.add(
-            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                // holdTimer 已在运行
-            },
-            forMode: .common
-        )
     }
 
     private func stopHold() {

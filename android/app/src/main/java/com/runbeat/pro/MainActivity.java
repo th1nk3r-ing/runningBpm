@@ -89,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvBuildInfo;
 
     // ===== 状态 =====
+    private static final String TAG_UI = "RunBeat-UI";
     /** BPM 产品区间（120–220，支持 0.1 精度）。 */
     private static final double MIN_BPM = 120.0;
     private static final double MAX_BPM = 220.0;
@@ -104,6 +105,12 @@ public class MainActivity extends AppCompatActivity {
     private int tickVolumePercent = 80;
     private int accentColorIndex = 0;
     private boolean soundAssetsLoaded;
+    /** onCreate 恢复持久化状态期间抑制「用户操作」日志。 */
+    private boolean restoringUi = true;
+    /** 长按前的 BPM；只在值真的变了时才记一条。 */
+    private double bpmHoldStart;
+    /** 拖动前的音量；只在值真的变了时才记一条。 */
+    private int volumeAtTouchStart;
 
     // ===== 主题色系 =====
     private static final int[] ACCENT_COLORS = {
@@ -184,12 +191,14 @@ public class MainActivity extends AppCompatActivity {
         phonePermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> {
+                    Logx.i(TAG_UI, "permission phone=" + granted);
                     if (granted) MetronomeService.onPhonePermissionGranted();
                 });
 
         notificationPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> {
+                    Logx.i(TAG_UI, "permission notification=" + granted);
                     // 授权前已发出的通知会被系统丢弃且不补发，授权后必须重新 notify
                     if (granted && isRunning) updateServiceNotification();
                 });
@@ -246,6 +255,7 @@ public class MainActivity extends AppCompatActivity {
             if (!restored) {
                 isRunning = false;
                 isPaused = false;
+                Logx.w(TAG_UI, "restore failed: audio unavailable");
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
             }
         }
@@ -259,6 +269,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         checkBatteryOptimization();
+        restoringUi = false;
     }
 
     @Override
@@ -377,8 +388,13 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {
                 sb.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                volumeAtTouchStart = tickVolumePercent;
             }
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                if (tickVolumePercent != volumeAtTouchStart) {
+                    Logx.i(TAG_UI, "volume=" + tickVolumePercent);
+                }
+            }
         });
 
         btnSettings.setOnClickListener(v -> openSettings());
@@ -396,6 +412,8 @@ public class MainActivity extends AppCompatActivity {
         drawerTimbre.setOnClickListener(v -> showTimbreDialog());
 
         switchLogToFile.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            // 先落这条再切 sink：关闭时该行必须在摘挂前写出去
+            Logx.i(TAG_UI, "file log " + (isChecked ? "on" : "off"));
             prefsManager.setLogToFile(isChecked);
             Logx.setFileEnabled(isChecked);
             updateLogStateText(isChecked);
@@ -406,6 +424,7 @@ public class MainActivity extends AppCompatActivity {
             if (!isLocked) {
                 isLocked = true;
                 updateLockState();
+                Logx.i(TAG_UI, "lock");
                 Toast.makeText(this, getString(R.string.msg_locked), Toast.LENGTH_SHORT).show();
             }
         });
@@ -457,6 +476,7 @@ public class MainActivity extends AppCompatActivity {
         if (gainLevel > 3) gainLevel = 3;
         AudioEngine.nativeSetOutputGain((double) gainLevel);
         btnGain.setText("x" + gainLevel);
+        if (!restoringUi) Logx.i(TAG_UI, "gain=x" + gainLevel);
     }
 
     // ===== 重音模式 =====
@@ -480,6 +500,7 @@ public class MainActivity extends AppCompatActivity {
         String[] names = getResources().getStringArray(R.array.accent_mode_names);
         tvAccentName.setText(names[mode]);
         prefsManager.setAccentMode(mode);
+        if (!restoringUi) Logx.i(TAG_UI, "accent=" + mode + " " + names[mode]);
     }
 
     // ===== 音色切换 =====
@@ -497,12 +518,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadTimbre(int index) {
-        if (!AudioEngineRestorer.loadSoundPack(this, index)) return;
+        if (!AudioEngineRestorer.loadSoundPack(this, index)) {
+            Logx.w(TAG_UI, "timbre load failed: " + index);
+            return;
+        }
         timbreIndex = index;
         String[] names = getResources().getStringArray(R.array.timbre_names);
         String name = names[index];
         tvTimbreName.setText(name);
         prefsManager.setTimbre(index);
+        if (!restoringUi) Logx.i(TAG_UI, "timbre=" + index + " " + name);
     }
 
     private void ensureAudioSamplesLoaded() {
@@ -534,6 +559,7 @@ public class MainActivity extends AppCompatActivity {
                 if (isLocked) {
                     isLocked = false;
                     updateLockState();
+                    Logx.i(TAG_UI, "unlock");
                     Toast.makeText(MainActivity.this, getString(R.string.msg_unlocked), Toast.LENGTH_SHORT).show();
                     if (isRunning && !isPaused) {
                         scheduleAutoLock();
@@ -561,6 +587,7 @@ public class MainActivity extends AppCompatActivity {
             if (isRunning && !isPaused && !isLocked) {
                 isLocked = true;
                 updateLockState();
+                Logx.i(TAG_UI, "auto-lock");
                 Toast.makeText(MainActivity.this, getString(R.string.msg_auto_locked), Toast.LENGTH_SHORT).show();
             }
         };
@@ -576,7 +603,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== BPM 调节 =====
 
-    /** 调整 BPM 并同步 UI/引擎/通知；@param delta 支持 0.1 步进 */
+    /** 调整 BPM 并同步 UI/引擎/通知。 */
     private void adjustBpm(View source, double delta) {
         double newBpm = clampBpm(bpm + delta);
         if (newBpm != bpm) {
@@ -595,6 +622,12 @@ public class MainActivity extends AppCompatActivity {
         AudioEngine.nativeSetBpm(bpm);
         updateBpmDisplay();
         animateBpmChange();
+        // 长按连发期间不逐次打点，停手时由 stopBpmRepeat 记一条
+        if (bpmHoldRunnable == null) Logx.i(TAG_UI, "bpm=" + bpmText());
+    }
+
+    private String bpmText() {
+        return String.format(Locale.US, "%.1f", bpm);
     }
 
     /** 夹取到产品区间并量化到 0.1，避免 179.9999999 之类的浮点尾巴。 */
@@ -661,8 +694,9 @@ public class MainActivity extends AppCompatActivity {
                         v.postDelayed(() -> {
                             if (v.isPressed()) {
                                 isLongPress = true;
-                                adjustBpm(v, delta);
+                                // 先置连发标志，首步与后续步一样不在 applyBpm 里打点
                                 startBpmRepeat(v, delta);
+                                adjustBpm(v, delta);
                             }
                         }, android.view.ViewConfiguration.getLongPressTimeout());
                         return true;
@@ -683,6 +717,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startBpmRepeat(View source, double delta) {
         stopBpmRepeat();
+        bpmHoldStart = bpm;
         bpmHoldRunnable = new Runnable() {
             @Override
             public void run() {
@@ -697,6 +732,7 @@ public class MainActivity extends AppCompatActivity {
         if (bpmHoldRunnable != null) {
             bpmHoldHandler.removeCallbacks(bpmHoldRunnable);
             bpmHoldRunnable = null;
+            if (bpm != bpmHoldStart) Logx.i(TAG_UI, "bpm=" + bpmText());
         }
         if (pendingBpmSave != null) {
             prefsSaveHandler.removeCallbacks(pendingBpmSave);
@@ -737,9 +773,11 @@ public class MainActivity extends AppCompatActivity {
         if (!isRunning) {
             maybeRequestNotificationPermission();
             if (!restoreAudioEngine(bpm, false)) {
+                Logx.w(TAG_UI, "start failed: audio unavailable");
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
             }
+            Logx.i(TAG_UI, "start bpm=" + bpmText());
             isRunning = true;
             isPaused = false;
             elapsedSeconds = 0;
@@ -750,14 +788,17 @@ public class MainActivity extends AppCompatActivity {
         } else if (isPaused) {
             maybeRequestNotificationPermission();
             if (!restoreAudioEngine(bpm, false)) {
+                Logx.w(TAG_UI, "resume failed: audio unavailable");
                 Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
                 return;
             }
+            Logx.i(TAG_UI, "resume bpm=" + bpmText());
             isPaused = false;
             timerHandler.postDelayed(timerRunnable, 1000);
             scheduleAutoLock();
             maybeRequestPhonePermission();
         } else {
+            Logx.i(TAG_UI, "pause");
             isPaused = true;
             AudioEngine.nativePause();
             timerHandler.removeCallbacks(timerRunnable);
@@ -777,6 +818,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 完全停止：结束计时/前台服务/原生流并清除可恢复运行态。 */
     private void stopPlayback() {
+        Logx.i(TAG_UI, "stop");
         AudioEngine.nativeStop();
         // 释放流，避免以 OPEN 状态长期占用 EXCLUSIVE 通路
         AudioEngine.destroy();
@@ -814,9 +856,11 @@ public class MainActivity extends AppCompatActivity {
             isPaused = false;
             MetronomeService.stopExplicitly(this);
             updateUI();
+            Logx.w(TAG_UI, "restart failed: audio unavailable");
             Toast.makeText(this, R.string.msg_audio_unavailable, Toast.LENGTH_LONG).show();
             return;
         }
+        Logx.i(TAG_UI, "restart bpm=" + bpmText());
         elapsedSeconds = 0;
         isRunning = true;
         isPaused = false;
@@ -930,7 +974,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateBpmDisplay() {
-        tvBpm.setText(String.format(Locale.US, "%.1f", bpm));
+        tvBpm.setText(bpmText());
     }
 
     private void updateTimerDisplay() {
@@ -1047,6 +1091,7 @@ public class MainActivity extends AppCompatActivity {
         tvBpmLabel.setTextColor(color);
         btnRestart.setBackground(makeBpmRippleBg(color));
         btnRestart.setTextColor(color);
+        if (!restoringUi) Logx.i(TAG_UI, "theme=" + accentColorIndex + " " + tvThemeName.getText());
     }
 
     private android.graphics.drawable.Drawable makeBpmRippleBg(int accent) {
@@ -1086,6 +1131,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleLanguage() {
         String next = prefsManager.getLanguage().equals("zh") ? "en" : "zh";
+        Logx.i(TAG_UI, "language=" + next);
         prefsManager.setLanguage(next);
         applyLanguage(next);
         // recreate() 不杀进程，后台服务与 WakeLock 不受影响

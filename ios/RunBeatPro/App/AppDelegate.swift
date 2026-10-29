@@ -92,7 +92,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, CXCallObserverDelegate {
     }
 
     private func handleMediaServicesReset() {
-        AudioEngineBridge.logInfo("AudioSession", message: "media services were reset — reconfiguring")
+        AudioEngineBridge.logWarn("AudioSession", message: "media services were reset — reconfiguring")
         // 重置后旧的观察者可能失效：先全部卸载再重装（幂等）。
         removeAudioSessionObservers()
         AudioEngineBridge.setupLogging()

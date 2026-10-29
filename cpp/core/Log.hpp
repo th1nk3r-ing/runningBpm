@@ -7,12 +7,18 @@
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <spdlog/sinks/dist_sink.h>
@@ -35,8 +41,8 @@ namespace beat::log {
 struct Config {
     std::string logDir;                            // 空 = 不写文件
     spdlog::level::level_enum level = spdlog::level::trace;
-    std::size_t fileBytes = std::size_t(2) << 20;  // 2 MiB
-    std::size_t fileCount = 3;
+    std::size_t fileBytes = std::size_t(4) << 20;  // 4 MiB
+    std::size_t fileCount = 2;
     bool fileEnabled = true;                       // 只控制写文件
 };
 
@@ -80,7 +86,75 @@ namespace detail {
 inline constexpr std::string_view kTickTag = "RunBeat-Beat";
 inline constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%l] [%n] %v";
 
-/** 门面的进程级状态：级别、每拍 logger 与落盘目标。 */
+/** 回调线程 → 落盘线程的单生产者环形队列，满即丢，不分配不加锁。 */
+inline constexpr std::size_t kBeatSlots = 256;
+inline constexpr std::size_t kBeatTextMax = 96;
+static_assert((kBeatSlots & (kBeatSlots - 1)) == 0, "kBeatSlots 必须是 2 的幂");
+inline constexpr auto kBeatDrainInterval = std::chrono::milliseconds(100);
+
+struct BeatRecord {
+    spdlog::log_clock::time_point time{};
+    spdlog::level::level_enum level = spdlog::level::trace;
+    std::uint16_t size = 0;
+    char text[kBeatTextMax]{};
+};
+
+class BeatQueue final {
+public:
+    bool Push(const char* data, std::size_t size, spdlog::level::level_enum level,
+              spdlog::log_clock::time_point time) noexcept {
+        const std::uint32_t head = head_.load(std::memory_order_relaxed);
+        if (head - tail_.load(std::memory_order_acquire) >= kBeatSlots) {
+            dropped_.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        BeatRecord& slot = slots_[head & (kBeatSlots - 1)];
+        slot.size = static_cast<std::uint16_t>(size < kBeatTextMax ? size : kBeatTextMax);
+        std::memcpy(slot.text, data, slot.size);
+        slot.level = level;
+        slot.time = time;
+        head_.store(head + 1, std::memory_order_release);
+        return true;
+    }
+
+    bool Pop(BeatRecord& out) noexcept {
+        const std::uint32_t tail = tail_.load(std::memory_order_relaxed);
+        if (tail == head_.load(std::memory_order_acquire)) return false;
+        out = slots_[tail & (kBeatSlots - 1)];
+        tail_.store(tail + 1, std::memory_order_release);
+        return true;
+    }
+
+    std::uint32_t TakeDropped() noexcept {
+        return dropped_.exchange(0, std::memory_order_relaxed);
+    }
+
+    /** 重新 Init 前丢弃上一次的残留记录。 */
+    void Reset() noexcept {
+        tail_.store(head_.load(std::memory_order_acquire), std::memory_order_release);
+        dropped_.store(0, std::memory_order_relaxed);
+    }
+
+private:
+    std::array<BeatRecord, kBeatSlots> slots_{};
+    std::atomic<std::uint32_t> head_{0};
+    std::atomic<std::uint32_t> tail_{0};
+    std::atomic<std::uint32_t> dropped_{0};
+};
+
+inline BeatQueue& beatQueue() noexcept {
+    static BeatQueue queue;
+    return queue;
+}
+
+class BeatQueueSink final : public spdlog::sinks::base_sink<spdlog::details::null_mutex> {
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        beatQueue().Push(msg.payload.data(), msg.payload.size(), msg.level, msg.time);
+    }
+    void flush_() override {}
+};
+
 struct State {
     std::atomic<bool> inited{false};
     std::atomic<spdlog::level::level_enum> level{spdlog::level::info};
@@ -89,8 +163,14 @@ struct State {
     std::shared_ptr<spdlog::sinks::dist_sink_mt> gate =
             std::make_shared<spdlog::sinks::dist_sink_mt>();
 
-    std::shared_ptr<spdlog::logger> tick;      // 音频回调使用
+    std::shared_ptr<spdlog::logger> tick;
     std::shared_ptr<spdlog::logger> fallback;  // 注册失败兜底
+    /** tick logger 的系统日志 sink：drain 线程报丢弃数时用。 */
+    std::shared_ptr<spdlog::sinks::sink> tickSystemSink;
+
+    std::thread drain;
+    std::atomic<bool> draining{false};
+    std::mutex lifecycle;
 
     // 晚绑定：关闭文件日志时不创建文件
     std::shared_ptr<spdlog::sinks::sink> file;
@@ -98,11 +178,52 @@ struct State {
     std::size_t bytes = 0;
     std::size_t count = 0;
     bool attached = false;
+
+    /** 漏调 Shutdown 时也不能带着 joinable 线程退出。 */
+    ~State() {
+        draining.store(false, std::memory_order_relaxed);
+        if (drain.joinable()) drain.join();
+    }
 };
 
 inline State& state() noexcept {
     static State instance;
     return instance;
+}
+
+/** 排空队列写进 gate，文件开关因而同样生效。 */
+inline void DrainBeats() noexcept {
+    auto& s = state();
+    BeatRecord record;
+    while (beatQueue().Pop(record)) {
+        spdlog::details::log_msg msg(record.time, spdlog::source_loc{},
+                                     spdlog::string_view_t(kTickTag.data(), kTickTag.size()),
+                                     record.level,
+                                     spdlog::string_view_t(record.text, record.size));
+        try {
+            s.gate->log(msg);
+        } catch (...) {
+        }
+    }
+    const std::uint32_t dropped = beatQueue().TakeDropped();
+    if (dropped > 0) {
+        char text[48];
+        const int len = std::snprintf(text, sizeof(text), "beat log dropped=%u", dropped);
+        if (len > 0) {
+            const auto size = static_cast<std::size_t>(len) < sizeof(text)
+                                      ? static_cast<std::size_t>(len)
+                                      : sizeof(text) - 1;
+            spdlog::details::log_msg msg(spdlog::string_view_t(kTickTag.data(), kTickTag.size()),
+                                         spdlog::level::warn,
+                                         spdlog::string_view_t(text, size));
+            try {
+                // 系统日志同样要有：文件开关关闭时缺口只能在这里看到
+                if (s.tickSystemSink) s.tickSystemSink->log(msg);
+                s.gate->log(msg);
+            } catch (...) {
+            }
+        }
+    }
 }
 
 inline std::vector<spdlog::sink_ptr> MakeSinks(const std::string& tag, bool realtime) {
@@ -114,14 +235,19 @@ inline std::vector<spdlog::sink_ptr> MakeSinks(const std::string& tag, bool real
         sinks.push_back(std::make_shared<spdlog::sinks::android_sink_mt>(tag, true));
     }
 #elif defined(__APPLE__)
-    (void)realtime;
-    sinks.push_back(std::make_shared<OsLogSink>(tag));
+    // Apple 没有无锁的系统日志 sink：realtime 只入队，避免给回调挂 std::mutex
+    if (realtime) {
+        sinks.push_back(std::make_shared<spdlog::sinks::null_sink_st>());
+    } else {
+        sinks.push_back(std::make_shared<OsLogSink>(tag));
+    }
 #else
     (void)tag;
     (void)realtime;
     sinks.push_back(std::make_shared<spdlog::sinks::null_sink_mt>());
 #endif
-    if (!realtime) sinks.push_back(state().gate);
+    if (realtime) sinks.push_back(std::make_shared<BeatQueueSink>());
+    else sinks.push_back(state().gate);
     return sinks;
 }
 
@@ -181,6 +307,8 @@ inline void SetFileEnabled(bool enabled) noexcept {
             s.attached = false;
             return;
         }
+        // 未初始化时不许建文件：否则会在 Shutdown 后按旧 dir 重开
+        if (!s.inited.load(std::memory_order_relaxed)) return;
         if (s.dir.empty()) return;
         if (!s.file) {
             s.file = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
@@ -199,48 +327,81 @@ inline void SetFileEnabled(bool enabled) noexcept {
 
 inline void Init(const Config& config) noexcept {
     auto& s = detail::state();
-    if (s.inited.exchange(true)) return;
-
-    s.level.store(config.level, std::memory_order_relaxed);
     try {
-        spdlog::set_level(config.level);
-    } catch (...) {
-    }
+        // Init/Shutdown 串行化：否则会在 joinable 线程上重新赋值
+        std::lock_guard<std::mutex> lock(s.lifecycle);
+        if (s.inited.exchange(true)) return;
 
-    try {
-        s.dir = config.logDir;
-        s.bytes = config.fileBytes;
-        s.count = config.fileCount;
-    } catch (...) {
-    }
-    SetFileEnabled(config.fileEnabled);
-
-    try {
-        s.tick = MakeLogger(std::string(detail::kTickTag), true);
-        if (s.tick) {
-            // 默认 handler 会在回调线程取静态锁、调 localtime 再 fprintf，这里直接丢弃
-            s.tick->set_error_handler([](const std::string&) {});
+        s.level.store(config.level, std::memory_order_relaxed);
+        try {
+            spdlog::set_level(config.level);
+        } catch (...) {
         }
-    } catch (...) {
-    }
 
-    try {
-        spdlog::flush_every(std::chrono::seconds(3));
+        try {
+            if (s.dir != config.logDir || s.bytes != config.fileBytes || s.count != config.fileCount) {
+                // 落盘目标变了：旧 sink 不能复用
+                if (s.attached && s.file) s.gate->remove_sink(s.file);
+                s.file.reset();
+                s.attached = false;
+            }
+            s.dir = config.logDir;
+            s.bytes = config.fileBytes;
+            s.count = config.fileCount;
+        } catch (...) {
+        }
+        SetFileEnabled(config.fileEnabled);
+
+        try {
+            s.tick = MakeLogger(std::string(detail::kTickTag), true);
+            if (s.tick) {
+                // 默认 handler 会在回调线程取静态锁、调 localtime 再 fprintf，这里直接丢弃
+                s.tick->set_error_handler([](const std::string&) {});
+                const auto& sinks = s.tick->sinks();
+                s.tickSystemSink = sinks.empty() ? nullptr : sinks.front();
+            }
+        } catch (...) {
+        }
+
+        try {
+            spdlog::flush_every(std::chrono::seconds(3));
+        } catch (...) {
+        }
+
+        try {
+            detail::beatQueue().Reset();
+            s.draining.store(true, std::memory_order_relaxed);
+            s.drain = std::thread([] {
+                auto& st = detail::state();
+                while (st.draining.load(std::memory_order_relaxed)) {
+                    detail::DrainBeats();
+                    std::this_thread::sleep_for(detail::kBeatDrainInterval);
+                }
+                detail::DrainBeats();
+            });
+        } catch (...) {
+            s.draining.store(false, std::memory_order_relaxed);
+        }
     } catch (...) {
     }
 }
 
 inline void Shutdown() noexcept {
     auto& s = detail::state();
-    if (!s.inited.exchange(false)) return;
     try {
+        std::lock_guard<std::mutex> lock(s.lifecycle);
+        if (!s.inited.exchange(false)) return;
+        s.draining.store(false, std::memory_order_relaxed);
+        if (s.drain.joinable()) s.drain.join();
+        detail::DrainBeats();
         spdlog::apply_all([](std::shared_ptr<spdlog::logger> logger) { logger->flush(); });
         SetFileEnabled(false);
         spdlog::shutdown();
+        s.tickSystemSink.reset();
+        s.file.reset();
+        // tick 故意不 reset：音频线程可能仍持有裸指针，等下次 Init 覆写
     } catch (...) {
     }
-    s.tick.reset();
-    s.file.reset();
 }
 
 } // namespace beat::log

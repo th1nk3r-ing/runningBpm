@@ -205,11 +205,11 @@ static aaudio_data_callback_result_t dataCallback(
 }
 
 static void errorCallback(AAudioStream* /*stream*/, void* /*userData*/, aaudio_result_t error) {
-    beat::log::Get(kLogTag)->info("stream error: {}", error);
+    beat::log::Get(kLogTag)->warn("stream error: {}", error);
     // 不可在 error callback 内调用任何 AAudio API，只设标志位由主线程轮询重建
     if (error == AAUDIO_ERROR_DISCONNECTED) {
         gStreamError.store(true, std::memory_order_relaxed);
-        beat::log::Get(kLogTag)->info("stream disconnected — flagged for rebuild");
+        beat::log::Get(kLogTag)->warn("stream disconnected — flagged for rebuild");
     }
 }
 
@@ -253,7 +253,7 @@ static bool OpenStream() {
         AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
         result = AAudioStreamBuilder_openStream(builder, &gStream);
         if (result != AAUDIO_OK) {
-            beat::log::Get(kLogTag)->info("EXCLUSIVE mode failed ({}), fallback to SHARED", result);
+            beat::log::Get(kLogTag)->warn("EXCLUSIVE mode failed ({}), fallback to SHARED", result);
             AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
             result = AAudioStreamBuilder_openStream(builder, &gStream);
         }
@@ -450,7 +450,7 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_runbeat_audio_AudioEngine_nativeResumeRaw(JNIEnv * /*env*/, jclass /*clazz*/) {
     beat::log::Get(kLogTag)->info("nativeResume");
     if (gEngine.GetState() == AudioEngine::State::Idle) {
-        beat::log::Get(kLogTag)->error("nativeResume: engine idle, ignored");
+        beat::log::Get(kLogTag)->warn("nativeResume: engine idle, ignored");
         return JNI_FALSE;
     }
     if (gStreamError.exchange(false, std::memory_order_acq_rel)) {
@@ -608,7 +608,7 @@ Java_com_runbeat_audio_Logx_nativeInitLoggingRaw(
             env->ReleaseStringUTFChars(logDir, chars);
         }
     }
-    beat::log::Init({dir, spdlog::level::trace, std::size_t(2) << 20, 3,
+    beat::log::Init({dir, spdlog::level::trace, std::size_t(4) << 20, 2,
                      fileEnabled == JNI_TRUE});
     return JNI_TRUE;
 }

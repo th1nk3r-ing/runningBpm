@@ -192,8 +192,11 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
 
 #### 11.2 级别与 tag
 
-* 级别：`trace/debug/info/warn/error/critical`，全局默认 `trace`，release 同样保留。
-* tag 沿用原 logcat 标签：`RunBeat-Native`、`RunBeat-Beat`、`RunBeat-Stats`、`RunBeat-XRun`、`RunBeat-Service`、`AudioEngine`、`AudioEngineBridge`、`AudioUnit`、`AudioSession`、`RemoteCommand`。
+* 级别：`trace/debug/info/warn/error/critical`，全局默认 `trace`，release 同样保留。门面入口：C++ 直连 `->trace/debug/info/warn/error/critical`；Android 为 `Logx.t/d/i/w/e`（`critical` 只有常量与 native 通道，无封装方法）；iOS 为 `logDebug/logInfo/logWarn/logError`。
+* 级别口径：`error` 给「功能不可用」（样本加载失败、流 / AudioUnit 创建失败）；`warn` 给「降级但仍可用」（流断开待重建、EXCLUSIVE 回落 SHARED、会话被重置、启动/恢复失败后可重试）；`info` 给状态迁移与周期性观测（`RunBeat-Stats`、`RunBeat-XRun`）；`trace` 给高频数值（每拍、`nativeSetBpm`）；`debug` 目前未使用，留作后续细分。
+* tag 沿用原 logcat 标签：`RunBeat-Native`、`RunBeat-Beat`、`RunBeat-Stats`、`RunBeat-XRun`、`RunBeat-Service`、`AudioEngineBridge`、`AudioUnit`、`AudioSession`、`RemoteCommand`。
+* `AudioEngine` 不是门面 tag：它只用于 `AudioEngine.java` 里 `librunbeat.so` 加载失败时的 `android.util.Log` 兜底。
+* 用户操作统一走 `RunBeat-UI`：一次操作一条 `info`（`start/pause/resume/restart`、Android 额外的 `stop`、`bpm`、`volume`、`gain`、`accent`、`timbre`、`theme`、`language`、`lock`/`unlock`/`auto-lock`、`file log on/off`、权限结果），设置类用「值 + 名称」，失败分支走 `warn`。连续输入（BPM 长按、音量滑块）只在停手且值真的变化时记一条，不逐帧打点。
 
 #### 11.3 sink
 
@@ -205,21 +208,22 @@ Android 系统的碎片化和严苛的后台管理是最大挑战。
 
 iOS 级别映射：`trace/debug → OS_LOG_TYPE_DEBUG`，`info/warn → OS_LOG_TYPE_DEFAULT`（`info` 用 DEFAULT 是为了让 `log show` 事后可查），`err → ERROR`，`critical → FAULT`。
 
-文件按 2 MiB × 3 轮转，3 秒周期 flush；目录不可写时自动降级为只打系统日志。
+文件按 4 MiB × 2 轮转，3 秒周期 flush；目录不可写时自动降级为只打系统日志。按 180 BPM 约 1.4 MiB/h 估算，单文件约 3 小时、总保留约 6 小时。
 
-文件 sink 挂在 spdlog 自带的 `dist_sink` 上：面板「日志写入文件」开关就是挂载/摘除子 sink，关掉后完全不落盘、也不留空文件；首次真正需要落盘时才打开文件。状态存 Android `SharedPreferences` 的 `log_to_file` / iOS `UserDefaults` 同名键，默认开启。
+文件 sink 挂在 spdlog 自带的 `dist_sink` 上：面板「日志写入文件」开关就是挂载/摘除子 sink。关闭后不再写入、也不新建文件（句柄保留到 `Shutdown`）；`Shutdown` 之后再打开开关不会重开文件，只有下一次 `Init` 才会按新目录建。打开时立即创建文件，所以「开着但还没写」会看到一个 0 字节的 `runbeat.log`。状态存 Android `SharedPreferences` 的 `log_to_file` / iOS `UserDefaults` 同名键，默认开启。
 
 #### 11.4 回调线程内的每拍打点
 
-`RunBeat-Beat` 是全链路唯一跑在音频回调里的日志，用途是核对「目标 BPM 是否精确打点」：逐拍记录 `beatSeq`、绝对帧位置与采样率，事后离线比对漂移。它是量测工具，不是业务日志，因此**刻意**留在回调线程内，不经任何队列与队列线程。
+`RunBeat-Beat` 是全链路唯一跑在音频回调里的日志，用途是核对「目标 BPM 是否精确打点」：逐拍记录 `beatSeq`、绝对帧位置与采样率，事后离线比对漂移。它是量测工具，不是业务日志，因此**刻意**留在回调线程内，中途不经过任何会阻塞的队列。
 
 约束被单独收紧：
 
-* 同步 logger + 单 sink + `null_mutex`，正常路径不取锁；`Init` 时缓存裸指针，不做 registry 查找。
+* 同步 logger + 两个 sink（logcat + 入队）+ `null_mutex`，正常路径不取锁；`Init` 时缓存裸指针，不做 registry 查找。
 * `SPDLOG_ANDROID_RETRIES=0`，`EAGAIN` 不重试也不 sleep 等待 logd。
 * 单独装了空的 error handler：logd 写失败直接丢弃，不退到默认 handler 的静态锁 + `localtime` + `fprintf`。
-* 不挂文件 sink，只写 logcat，避免回调线程上的磁盘抖动。
+* 落盘不走 `gate`：格式化后的行写入 256 槽的单生产者环形队列（静态内存、无分配、无锁，满即丢），由 `Init` 起的 drain 线程每 100 ms 抽干后经 `gate` 写文件；文件开关同样生效。队列满时把丢弃计数以 `warning` 同时写进系统日志和文件，缺口在两条通道上都可见。
+* 记录时间取回调侧的 `msg.time`，文件行的时间戳即打点时刻，落盘延迟不影响漂移分析；与其它 tag 的行序可能有 ≤100 ms 的错位。
 * `memory_buf_t` 为 250 字节栈内缓冲，该行（约 30 字符）正常路径不产生堆分配。
-* 剩余开销即一次 logd 写，180 BPM 下每秒 3 次，相对 buffer 周期可忽略。
+* 剩余开销即一次 logd 写（含 `android_sink` 内部一次 250B 栈缓冲拷贝）+ 一次入队拷贝，180 BPM 下每秒 3 次，相对 buffer 周期可忽略。
 
 这条链路的准入条件只有一条：观测打点本身。任何业务日志一律不得借道进入音频回调。
